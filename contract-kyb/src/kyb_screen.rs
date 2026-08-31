@@ -25,7 +25,8 @@ pub struct KybResult {
     pub vat_name: String,
     pub lei_valid: bool,
     pub lei_name: String,
-    pub lei_status: String,
+    pub lei_registration_status: String,
+    pub lei_entity_status: String,
     pub risk_score: u8,
     pub risk_level: String,
     pub timestamp: u64,
@@ -56,7 +57,6 @@ pub fn screen(input: &[u8], now_secs: u64) -> Result<Vec<u8>, String> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        use crate::host::interfaces::http;
         use crate::host::interfaces::kv_store;
         use crate::host::interfaces::logging;
         use crate::verify_lei;
@@ -143,7 +143,8 @@ pub fn screen(input: &[u8], now_secs: u64) -> Result<Vec<u8>, String> {
             vat_name,
             lei_valid,
             lei_name,
-            lei_status,
+            lei_registration_status,
+            lei_entity_status,
             risk_score: risk,
             risk_level: risk_level.to_string(),
             timestamp: now_secs,

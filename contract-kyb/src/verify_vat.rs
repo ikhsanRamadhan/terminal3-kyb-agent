@@ -67,7 +67,7 @@ pub fn verify(input: &[u8]) -> Result<Vec<u8>, String> {
 
         let resp = http::call(&http::Request {
             method: http::Verb::Get,
-            url: &url,
+            url: url.clone(),
             headers: None,
             payload: None,
         })

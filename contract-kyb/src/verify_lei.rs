@@ -17,9 +17,13 @@ pub struct LeiInput {
 pub struct LeiResult {
     pub lei: String,
     pub legal_name: String,
-    pub status: String,
+    /// GLEIF registration status: ISSUED, LAPSED, RETIRED, ...
+    pub registration_status: String,
+    /// Entity status: ACTIVE or INACTIVE.
+    pub entity_status: String,
     pub hq_country: String,
-    pub registration_date: String,
+    pub jurisdiction: String,
+    pub initial_registration_date: String,
 }
 
 #[derive(Deserialize)]
@@ -36,9 +40,13 @@ struct GleifData {
 struct GleifAttributes {
     lei: String,
     entity: GleifEntity,
-    #[serde(rename = "registrationDate")]
-    registration_date: Option<String>,
-    #[serde(rename = "status")]
+    registration: Option<GleifRegistration>,
+}
+
+#[derive(Deserialize)]
+struct GleifRegistration {
+    #[serde(rename = "initialRegistrationDate")]
+    initial_registration_date: Option<String>,
     status: Option<String>,
 }
 
@@ -48,6 +56,8 @@ struct GleifEntity {
     legal_name: GleifLegalName,
     #[serde(rename = "headquartersAddress")]
     headquarters_address: Option<GleifAddress>,
+    jurisdiction: Option<String>,
+    status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -88,7 +98,7 @@ pub fn verify(input: &[u8]) -> Result<Vec<u8>, String> {
 
         let resp = http::call(&http::Request {
             method: http::Verb::Get,
-            url: &url,
+            url: url.clone(),
             headers: None,
             payload: None,
         })
@@ -111,14 +121,24 @@ pub fn verify(input: &[u8]) -> Result<Vec<u8>, String> {
         let result = LeiResult {
             lei: attrs.lei.clone(),
             legal_name: attrs.entity.legal_name.name.clone(),
-            status: attrs.status.clone().unwrap_or_default(),
+            registration_status: attrs
+                .registration
+                .as_ref()
+                .and_then(|r| r.status.clone())
+                .unwrap_or_default(),
+            entity_status: attrs.entity.status.clone().unwrap_or_default(),
             hq_country: attrs
                 .entity
                 .headquarters_address
                 .as_ref()
                 .and_then(|a| a.country.clone())
                 .unwrap_or_default(),
-            registration_date: attrs.registration_date.clone().unwrap_or_default(),
+            jurisdiction: attrs.entity.jurisdiction.clone().unwrap_or_default(),
+            initial_registration_date: attrs
+                .registration
+                .as_ref()
+                .and_then(|r| r.initial_registration_date.clone())
+                .unwrap_or_default(),
         };
 
         serde_json::to_vec(&result).map_err(|e| err_json("SerializeError", &e.to_string()))

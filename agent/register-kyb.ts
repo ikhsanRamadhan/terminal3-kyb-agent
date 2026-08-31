@@ -5,7 +5,7 @@
  * Idempotent: skips registration if the contract already exists.
  */
 import { readFile } from "node:fs/promises";
-import { getScriptVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
+import { getContractVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
 import { openT3nSession, type T3nSession } from "./lib/session.js";
 
 const CONTRACT_TAIL = "kyb";
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 
   // Grant egress to VIES and GLEIF
   console.log(`\n--- Granting egress to ${VIES_HOST} + ${GLEIF_HOST} ---`);
-  const scriptVersion = await getScriptVersion(s.baseUrl, scriptName);
+  const scriptVersion = await getContractVersion(s.baseUrl, scriptName);
   console.log(`  script_version: ${scriptVersion}`);
 
   await s.t3n.updateAgentAuth(s.did, {

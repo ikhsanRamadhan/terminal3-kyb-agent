@@ -5,7 +5,7 @@
  *
  * Exit code 0 = healthy, 1 = degraded.
  */
-import { getScriptVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
+import { getContractVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
 import { openT3nSession } from "./lib/session.js";
 
 const CONTRACT_TAIL = "kyb";
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   }
 
   // Check 2: contract is callable (lightweight verify-vat)
-  const scriptVersion = await getScriptVersion(s.baseUrl, scriptName);
+  const scriptVersion = await getContractVersion(s.baseUrl, scriptName);
   try {
     const out = await s.t3n.execute({
       script_name: scriptName,

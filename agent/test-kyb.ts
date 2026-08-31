@@ -2,7 +2,7 @@
  * KYB happy-path test — invoke verify-vat, verify-lei, and kyb-screen
  * against real companies to prove the agent works end-to-end.
  */
-import { getScriptVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
+import { getContractVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
 import { openT3nSession, type T3nSession } from "./lib/session.js";
 
 const CONTRACT_TAIL = "kyb";
@@ -21,7 +21,8 @@ async function main(): Promise<void> {
   let bal = ((await s.t3n.getBalance()) as { available: number }).available;
   console.log(`balance: ${(bal / BASE_UNITS_PER_TOKEN).toFixed(2)} tokens`);
 
-  const scriptVersion = await getScriptVersion(s.baseUrl, scriptName);
+  const scriptVersion = await getContractVersion(s.baseUrl, scriptName);
+  console.log(`  script_version resolved: ${scriptVersion}`);
 
   // Test 1: verify-vat (Google Ireland)
   console.log("\n=== Test 1: verify-vat (Google Ireland, IE/6388047V) ===");
