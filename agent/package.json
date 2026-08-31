@@ -13,7 +13,8 @@
     "a5": "tsx --env-file=../.env.local a5probe.ts",
     "register-kyb": "tsx --env-file=../.env.local register-kyb.ts",
     "test-kyb": "tsx --env-file=../.env.local test-kyb.ts",
-    "health": "tsx --env-file=../.env.local health.ts"
+    "health": "tsx --env-file=../.env.local health.ts",
+    "fix-acl": "tsx --env-file=../.env.local fix-acl.ts"
   },
   "dependencies": {
     "@terminal3/t3n-sdk": "^4.35.1",
