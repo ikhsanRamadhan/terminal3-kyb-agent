@@ -1,0 +1,27 @@
+{
+  "name": "t3n-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "tsx --env-file=../.env.local probe.ts",
+    "kvprobe": "tsx --env-file=../.env.local kvprobe.ts",
+    "aclprobe": "tsx --env-file=../.env.local aclprobe.ts",
+    "a2": "tsx --env-file=../.env.local a2probe.ts",
+    "a3": "tsx --env-file=../.env.local a3probe.ts",
+    "a4": "tsx --env-file=../.env.local a4probe.ts",
+    "a5": "tsx --env-file=../.env.local a5probe.ts",
+    "register-kyb": "tsx --env-file=../.env.local register-kyb.ts",
+    "test-kyb": "tsx --env-file=../.env.local test-kyb.ts",
+    "health": "tsx --env-file=../.env.local health.ts"
+  },
+  "dependencies": {
+    "@terminal3/t3n-sdk": "^4.35.1",
+    "ethers": "^6.17.0",
+    "tsx": "^4.23.12"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.3"
+  }
+}

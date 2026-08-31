@@ -1,0 +1,99 @@
+/**
+ * Register the KYB contract on T3N testnet, create its result map,
+ * and set up egress grants for VIES + GLEIF.
+ *
+ * Idempotent: skips registration if the contract already exists.
+ */
+import { readFile } from "node:fs/promises";
+import { getScriptVersion, BASE_UNITS_PER_TOKEN } from "@terminal3/t3n-sdk";
+import { openT3nSession, type T3nSession } from "./lib/session.js";
+
+const CONTRACT_TAIL = "kyb";
+const CONTRACT_VERSION = "0.1.0";
+const WASM_PATH = "../contract-kyb/target/wasm32-wasip2/release/z_tenant_kyb.wasm";
+const VIES_HOST = "ec.europa.eu";
+const GLEIF_HOST = "api.gleif.org";
+
+async function tokens(s: T3nSession, label: string, lastRaw: number): Promise<number> {
+  const bal = (await s.t3n.getBalance()) as { available: number };
+  const delta = lastRaw - bal.available;
+  console.log(`  [tokens] ${label}: ${(delta / BASE_UNITS_PER_TOKEN).toFixed(4)} (raw ${delta})`);
+  return bal.available;
+}
+
+async function main(): Promise<void> {
+  const s = await openT3nSession();
+  const tenantId = s.did.slice("did:t3n:".length);
+  const scriptName = `z:${tenantId}:${CONTRACT_TAIL}`;
+
+  let bal = ((await s.t3n.getBalance()) as { available: number }).available;
+  console.log(`balance: ${(bal / BASE_UNITS_PER_TOKEN).toFixed(2)} tokens`);
+
+  const existing = (await s.tenant.contracts.list()) as string[];
+  let kybId: number | undefined;
+
+  if (existing.includes(scriptName)) {
+    console.log(`\n${CONTRACT_TAIL} already registered — skipping registration`);
+    // Find the contract ID from listDetailed
+    const detailed = (await s.tenant.contracts.listDetailed()) as Array<{
+      name: string;
+      contract_id: number;
+    }>;
+    const found = detailed.find((d) => d.name === scriptName);
+    kybId = found?.contract_id;
+    console.log(`  contract_id: ${kybId}`);
+  } else {
+    console.log(`\n--- Registering ${CONTRACT_TAIL} ---`);
+    const wasm = await readFile(WASM_PATH);
+    console.log(`  wasm bytes: ${wasm.byteLength}`);
+    const reg = await s.tenant.contracts.register({
+      tail: CONTRACT_TAIL,
+      version: CONTRACT_VERSION,
+      wasm,
+    });
+    kybId = reg.contract_id;
+    console.log(`  registered: ${reg.name} (contract_id ${reg.contract_id})`);
+    bal = await tokens(s, "contracts.register", bal);
+
+    // Create the results map (contract-only write, contract+tenant read)
+    console.log("\n--- Creating kyb-results map ---");
+    try {
+      await s.tenant.maps.create({
+        tail: "kyb-results",
+        visibility: "private",
+        writers: { only: [kybId] },
+        readers: { only: [kybId] },
+      });
+      console.log("  kyb-results map created");
+    } catch (e: unknown) {
+      const msg = (e as Error).message;
+      if (msg.includes("map already exists")) {
+        console.log("  kyb-results map already exists (idempotent)");
+      } else {
+        throw e;
+      }
+    }
+    bal = await tokens(s, "maps.create kyb-results", bal);
+  }
+
+  // Grant egress to VIES and GLEIF
+  console.log(`\n--- Granting egress to ${VIES_HOST} + ${GLEIF_HOST} ---`);
+  const scriptVersion = await getScriptVersion(s.baseUrl, scriptName);
+  console.log(`  script_version: ${scriptVersion}`);
+
+  await s.t3n.updateAgentAuth(s.did, {
+    scriptName,
+    versionReq: scriptVersion,
+    functions: ["verify-vat", "verify-lei", "kyb-screen"],
+    allowedHosts: [VIES_HOST, GLEIF_HOST],
+  });
+  console.log("  egress granted");
+  bal = await tokens(s, "updateAgentAuth", bal);
+
+  console.log(`\nfinal balance: ${(bal / BASE_UNITS_PER_TOKEN).toFixed(2)} tokens`);
+}
+
+main().catch((e: unknown) => {
+  console.error("\nRegistration FAILED:", e);
+  process.exitCode = 1;
+});

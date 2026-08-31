@@ -1,0 +1,42 @@
+/// z-tenant-kyb — Confidential Know-Your-Business verification agent.
+///
+/// All external API calls (VIES VAT validation, GLEIF LEI lookup) happen
+/// inside the TEE via `host:interfaces/http@2.1.0`. Company identifiers
+/// (VAT numbers, LEI codes, legal names) never leave the enclave — only
+/// the structured verification result crosses the WIT boundary.
+///
+/// No API keys required: VIES and GLEIF are free public APIs.
+/// No `http-with-placeholders` needed: these are GET requests with
+/// query parameters, not PII-templated bodies.
+package z:tenant-kyb@0.1.0;
+
+world tenant-kyb {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:interfaces/http@2.1.0;
+    export contracts;
+}
+
+interface contracts {
+    record generic-input {
+        input:        option<list<u8>>,
+        user-profile: option<list<u8>>,
+        context:      option<list<u8>>,
+    }
+
+    /// Verify a VAT number via the EU VIES service.
+    /// Input  (JSON): { "country": "DE", "vat_number": "129273398" }
+    /// Output (JSON): { valid, name, address, request_date, country, vat_number }
+    verify-vat: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// Look up a Legal Entity Identifier via GLEIF.
+    /// Input  (JSON): { "lei": "5299004MG7BJU2QS6Q75" }
+    /// Output (JSON): { lei, legal_name, status, hq_country, registration_date }
+    verify-lei: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// Combined KYB check: VAT + LEI + basic sanity.
+    /// Input  (JSON): { "company": "Siemens AG", "vat_country": "DE", "vat_number": "129273398", "lei": "5299004MG7BJU2QS6Q75" }
+    /// Output (JSON): { company, vat_valid, lei_valid, lei_status, risk_score, timestamp, digest }
+    kyb-screen: func(req: generic-input) -> result<list<u8>, string>;
+}

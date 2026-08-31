@@ -1,0 +1,15 @@
+node_modules/
+target/
+.env.local
+*.log
+*.out
+*.err
+.next/
+_t3docs/
+_t3wit/
+_docs_llms.txt
+GOAL.md
+BOUNTY.md
+PLAN.md
+AGENT.md
+CLAUDE.md*.pdf
