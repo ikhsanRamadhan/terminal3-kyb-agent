@@ -87,31 +87,48 @@ pub fn screen(input: &[u8], now_secs: u64) -> Result<Vec<u8>, String> {
         };
 
         // 2. LEI verification (optional)
-        let (lei_valid, lei_name, lei_status) = if let Some(ref lei) = req.lei {
-            if !lei.is_empty() {
-                let lei_input = serde_json::to_vec(&serde_json::json!({ "lei": lei }))
-                    .map_err(|e| err_json("SerializeError", &e.to_string()))?;
-                match verify_lei::verify(&lei_input) {
-                    Ok(bytes) => {
-                        let r: serde_json::Value = serde_json::from_slice(&bytes)
-                            .map_err(|e| err_json("ParseError", &format!("lei result: {e}")))?;
-                        (
-                            true,
-                            r["legal_name"].as_str().unwrap_or("").to_string(),
-                            r["status"].as_str().unwrap_or("").to_string(),
-                        )
+        let (lei_valid, lei_name, lei_registration_status, lei_entity_status) =
+            if let Some(ref lei) = req.lei {
+                if !lei.is_empty() {
+                    let lei_input = serde_json::to_vec(&serde_json::json!({ "lei": lei }))
+                        .map_err(|e| err_json("SerializeError", &e.to_string()))?;
+                    match verify_lei::verify(&lei_input) {
+                        Ok(bytes) => {
+                            let r: serde_json::Value = serde_json::from_slice(&bytes)
+                                .map_err(|e| err_json("ParseError", &format!("lei result: {e}")))?;
+                            (
+                                true,
+                                r["legal_name"].as_str().unwrap_or("").to_string(),
+                                r["registration_status"].as_str().unwrap_or("").to_string(),
+                                r["entity_status"].as_str().unwrap_or("").to_string(),
+                            )
+                        }
+                        Err(e) => {
+                            let _ = logging::error(&format!("LEI check failed: {e}"));
+                            (
+                                false,
+                                String::from("ERROR"),
+                                String::from("NOT_FOUND"),
+                                String::from("NOT_FOUND"),
+                            )
+                        }
                     }
-                    Err(e) => {
-                        let _ = logging::error(&format!("LEI check failed: {e}"));
-                        (false, String::from("ERROR"), String::from("NOT_FOUND"))
-                    }
+                } else {
+                    (
+                        false,
+                        String::new(),
+                        String::from("NOT_PROVIDED"),
+                        String::from("NOT_PROVIDED"),
+                    )
                 }
             } else {
-                (false, String::new(), String::from("NOT_PROVIDED"))
-            }
-        } else {
-            (false, String::new(), String::from("NOT_PROVIDED"))
-        };
+                (
+                    false,
+                    String::new(),
+                    String::from("NOT_PROVIDED"),
+                    String::from("NOT_PROVIDED"),
+                )
+            };
 
         // 3. Risk scoring
         let mut risk: u8 = 0;
@@ -120,6 +137,13 @@ pub fn screen(input: &[u8], now_secs: u64) -> Result<Vec<u8>, String> {
         }
         if req.lei.is_some() && !lei_valid {
             risk += 30;
+        }
+        // A LEI that exists but is no longer maintained is a real signal.
+        if lei_registration_status == "LAPSED" || lei_registration_status == "RETIRED" {
+            risk += 20;
+        }
+        if lei_entity_status == "INACTIVE" {
+            risk += 20;
         }
         if vat_valid && lei_valid {
             // Cross-check: names should roughly match

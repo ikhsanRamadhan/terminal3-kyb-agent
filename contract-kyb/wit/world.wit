@@ -8,7 +8,7 @@
 /// No API keys required: VIES and GLEIF are free public APIs.
 /// No `http-with-placeholders` needed: these are GET requests with
 /// query parameters, not PII-templated bodies.
-package z:tenant-kyb@0.1.0;
+package z:tenant-kyb@0.1.1;
 
 world tenant-kyb {
     import host:tenant/tenant-context@1.0.0;
