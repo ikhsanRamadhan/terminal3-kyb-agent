@@ -118,7 +118,7 @@ deterministic from `cargo build --target wasm32-wasip2 --release`.
 
 ## Verified testnet state
 
-- Contract registered: `z:bdf0434dfcd541ec2af899ad28599f6653421694:kyb` (id 634)
+- Contract registered: `z:bdf0434dfcd541ec2af899ad28599f6653421694:kyb` (id 815, v0.1.1)
 - Maps: `kyb-results` (contract-only ACL)
 - Egress: `ec.europa.eu`, `api.gleif.org`
 - Tests: 4/4 passing (valid VAT, LEI lookup, combined screen, invalid VAT)
