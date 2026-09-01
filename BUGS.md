@@ -71,52 +71,77 @@ If the ceiling is per-cluster rather than fixed, say so and name the current val
 
 ---
 
-## B2 — `maps.update` cannot widen an ACL it narrowed: the restriction is one-way
+## B2 — WITHDRAWN: an ACL-widening failure that no longer reproduces
 
 | Field | Value |
 |---|---|
-| Severity | **Major** — unrecoverable map state |
+| Severity | ~~Major~~ → **withdrawn**, kept for the record |
 | Where | `tenant.maps.update()` |
 | SDK | 4.46.0 |
-| Already documented? | No |
+| Status | Observed once on tenant `bdf0434d…21694`; **could not be reproduced** on `04306a80…65eec` |
 
-### Repro
+This was filed as a Major finding: that `maps.update` can narrow a map's ACL
+but not widen it again, leaving the map permanently unwritable. Before
+submitting, every finding in this file was re-run against the current tenant
+(`npm run verify-bugs`). Six reproduced. This one did not, so it is withdrawn
+rather than quietly dropped.
 
-```typescript
-await tenant.maps.create({ tail: "sizeprobe", visibility: "private",
-                           readers: "all", writers: "all" });
-await tenant.maps.entrySet("sizeprobe", "k", "v");                    // OK
+### What was originally observed
 
-await tenant.maps.update("sizeprobe", { readers: { only: [629] },
-                                        writers: { only: [629] } });
-await tenant.maps.entrySet("sizeprobe", "k2", "v");                   // denied
+On tenant `bdf0434d…21694`: a map created with `readers/writers: "all"`
+accepted writes; after `update` to `{ only: [629] }` writes were denied; after
+`update` back to `"all"` writes were **still** denied, with `getStatus` still
+reporting `active` throughout. The widening call reported success and charged
+70 tokens.
 
-await tenant.maps.update("sizeprobe", { readers: "all", writers: "all" });
-await tenant.maps.entrySet("sizeprobe", "k3", "v");                   // STILL denied
+### What happens now
+
+`agent/b2probe.ts` runs that exact sequence against the current tenant, using
+a throwaway `b2probe` map and the live contract id 835:
+
+```
+1. create b2probe with readers=all, writers=all
+2. entrySet('before_narrow')                            → ACCEPTED
+3. update to { readers/writers: { only: [835] } }        → ok
+4. entrySet('after_narrow')                             → ACCEPTED  ← not denied
+5. update back to { readers/writers: "all" }             → ok
+6. entrySet('after_widen')                              → ACCEPTED
 ```
 
-The final `update` reports success and costs 70 tokens, but the map never
-becomes writable again. `getStatus` still returns `active` throughout.
+Cost: 500.66 tokens.
 
-Note this interacts with a documented behaviour: the
+Step 4 is the interesting line. The narrowing never denied the owner's write
+at all, so the premise the original finding rested on — narrow, get denied,
+widen, stay denied — did not occur. And that non-denial is precisely what
 [create-kv-maps](https://docs.terminal3.io/developers/adk/tips/create-kv-maps)
-page states that `writers`/`readers` restrict *contracts*, not the owner, and
-that the owner can always write entries through the control plane. That holds
-for a map created with `writers: { only: [id] }` — verified, the bounty-#1
-`secrets` map still accepts owner writes. It does **not** hold for a map that
-was created permissive and then narrowed. Those two paths should end in the
-same state and don't.
+documents: `writers`/`readers` restrict *contracts*, not the owner, and the
+owner can always write entries through the control plane. The original B2 text
+asserted that this documented behaviour "does not hold for a map that was
+created permissive and then narrowed." On the current tenant it does hold.
 
-### Impact
+### Why this is still worth reading
 
-There is no recovery path other than creating a new map under a new tail. On
-a `secrets` map holding a live API key that means re-seeding the key and
-re-pointing every contract that reads it.
+Two possibilities, and this repo cannot distinguish them:
 
-### Suggested fix
+1. The behaviour was fixed between the two tenants' lifetimes.
+2. The original denial had a different cause that was misattributed to the ACL
+   — the tenants differ, and the id used in the original narrowing (629) was
+   not a contract on the tenant being tested, whereas 835 is.
 
-Either make `maps.update` able to widen an ACL, or reject the widening call
-loudly instead of accepting it and charging for a no-op.
+Explanation 2 is the more likely one and it is a real trap either way: an ACL
+naming a contract id that does not exist on the tenant is indistinguishable, at
+the call site, from one naming a live id. Nothing validates the ids in an ACL
+at `update` time, and B6 means you cannot read them back afterwards to check.
+That is worth a platform answer even though the original claim is withdrawn.
+
+### What this changes elsewhere in the repo
+
+The argument for keeping `kyb-results` permissive does **not** depend on this
+finding. It rests on B3, which reproduces: every redeploy allocates a new
+`contract_id`, so a contract-scoped ACL breaks `kyb-screen` on every deploy,
+and only `kyb-screen` writes — a read-only smoke test cannot see it. Narrowing
+is still a per-deploy manual step with no read-back; it is simply not the
+irreversible one-way door this finding claimed.
 
 ---
 

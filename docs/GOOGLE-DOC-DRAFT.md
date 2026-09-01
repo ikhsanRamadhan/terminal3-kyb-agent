@@ -19,7 +19,8 @@ checked never pass through the calling application.
 
 - Quickstart, dev environment, walkthrough 1–5 — complete
 - Enterprise agent live on testnet at v0.2.0, `npm run test-kyb` 4/4 passing
-- 7 issues filed with measured repros (4 major, 3 minor)
+- 7 findings filed; **all 7 re-tested before submitting** — 6 still reproduce
+  on the current tenant, 1 withdrawn because it did not (see §6)
 - `cargo test` 7/7 offline; certificate digest verified off-chain
 - Health check passing; redeploy script + handover runbook included
 - **I intend to keep running it** (see §7)
@@ -173,26 +174,55 @@ This is the criterion I designed for. The answer is structural:
 
 ## 6. Bugs found
 
-Seven findings, all reproduced on live testnet. Full details with repro steps
-are in BUGS.md in the repository. Summary:
+Seven findings. Before submitting, **every one was re-run against the live
+tenant** with `npm run verify-bugs` — six still reproduce, one did not and is
+withdrawn rather than quietly dropped. Full details and repro steps in BUGS.md.
 
-| ID | Severity | One-line summary |
-|---|---|---|
-| B1 | Major | KV value-size limit reported as `access denied` |
-| B2 | Major | `maps.update` cannot widen a narrowed ACL (one-way) |
-| B3 | Major | Re-registering orphans map ACLs |
-| B4 | Major | `getScriptVersion` renamed without deprecation |
-| B5 | Minor | `maps.create` validates `writers` after warning about `readers` |
-| B6 | Minor | `tenant.maps.list()` does not exist |
-| B7 | Minor | Unhandled SDK rejections print 1.25 MB minified bundle |
+| ID | Severity | Status | One-line summary |
+|---|---|---|---|
+| B1 | Major | reproduces | KV value-size limit reported as `access denied` |
+| B2 | ~~Major~~ | **withdrawn** | ACL widening failure did not reproduce on this tenant |
+| B3 | Major | reproduces | Re-registering orphans map ACLs; no API to read the current id |
+| B4 | Major | reproduces | `getScriptVersion` renamed without deprecation |
+| B5 | Minor | reproduces | `maps.create` validates `writers` after warning about `readers` |
+| B6 | Minor | reproduces | `tenant.maps.list()` does not exist |
+| B7 | Minor | reproduces | Unhandled SDK rejections print 1.25 MB minified bundle |
+
+Verification output, verbatim:
+
+```
+  PASS B1   508 accepted, 512 rejected, error names permissions not size
+  PASS B3a  contracts.list() returns names only — no contract_id
+  PASS B3b  re-registering the tail allocated new contract_id 835
+  PASS B4   131 exports; getScriptVersion absent, getContractVersion present
+  PASS B5   server rejects: missing field `writers` at line 1 column 124
+  PASS B6   maps surface = [client, create, update, delete, entrySet,
+            entryGet, getStatus]; no list()
+  PASS B7   index.js: 1.25 MB, longest line 1,252,391 chars, .map absent
+  FAIL B2   narrow → write ACCEPTED; widen → write ACCEPTED (see BUGS.md B2)
+```
+
+B2's withdrawal is the part I would want to read as a reviewer. It was filed as
+a Major finding — that narrowing a map ACL is irreversible. Re-running the exact
+sequence on the current tenant showed the narrowing never denied the owner's
+write in the first place, which is what the docs say should happen. The likeliest
+explanation is that the original narrowing named a contract id (629) that did not
+exist on the tenant under test, so the denial had a different cause. That
+mis-attribution is mine, and the corrected version is in BUGS.md along with the
+one real trap it exposed: nothing validates contract ids in an ACL at `update`
+time, and B6 means you cannot read them back to check.
+
+Two claims were also corrected against measurement rather than memory: B7 said
+"~2 MB" and named `index.esm.js`; it is 1.25 MB in `index.js`.
 
 Plus documentation observations: undocumented token costs, missing SDK
-changelog, WASI-target imports not explained in capability model.
+changelog, WASI-target imports not explained in the capability model.
 
-The v0.2.0 rework itself was driven by a finding that did not make BUGS.md
-because it is upstream behaviour, not a T3N bug: VIES overloading `isValid`
-(see section 3). It is documented in the contract source and README because
-anyone building a compliance agent on this platform will hit it.
+The v0.2.0 rework was driven by a finding that is not a T3N bug and so is not
+numbered here: VIES overloading `isValid` (§3). It is documented in the contract
+source and README because anyone building a compliance agent will hit it.
+
+[SCREENSHOT: npm run verify-bugs output]
 
 [SCREENSHOT: B1 repro showing access denied at 512 bytes]
 

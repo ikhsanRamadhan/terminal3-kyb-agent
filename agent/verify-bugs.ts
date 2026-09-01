@@ -6,7 +6,9 @@
  *
  * Every check prints the claim, what was observed, and PASS/FAIL/SKIP. PASS
  * means the bug still reproduces. FAIL means the claim no longer holds and
- * BUGS.md needs correcting — which is the outcome worth knowing about.
+ * BUGS.md needs correcting — which is the outcome worth knowing about. This
+ * suite has already earned its keep: it caught B7 overstating a bundle size,
+ * and it is why B2 is withdrawn (see agent/b2probe.ts and BUGS.md B2).
  *
  * Prints no secrets: only DIDs, contract ids and SDK symbol names.
  */
@@ -62,7 +64,7 @@ async function checkB7(): Promise<void> {
   }
   record(
     "B7",
-    "SDK ships as one ~2 MB minified line with no source map",
+    "SDK ships as a single ~1.25 MB minified line with no source map",
     `${entry.split(/[\\/]/).pop()}: ${(src.length / 1e6).toFixed(2)} MB, ${lines} lines, longest line ${longest} chars, .map ${hasMap ? "present" : "absent"}`,
     longest > 500_000 && !hasMap ? "PASS" : "FAIL",
   );
@@ -140,7 +142,8 @@ async function checkB5(s: T3nSession): Promise<void> {
 /** B1 — KV value ceiling reported as `access denied`. Costs ~220 tokens. */
 async function checkB1(s: T3nSession): Promise<void> {
   const TAIL = "b1probe";
-  // Permissive on purpose: B2 says a narrowed ACL can never be widened again.
+  // Permissive on purpose — a contract-scoped ACL would need re-pointing on
+  // every redeploy (B3) for no benefit here.
   try {
     await s.tenant.maps.create({
       tail: TAIL,
@@ -200,7 +203,10 @@ async function main(): Promise<void> {
   record(
     "B2",
     "maps.update cannot widen an ACL it narrowed",
-    "not run — the repro permanently bricks the map it touches, so it needs an explicit decision",
+    "WITHDRAWN — ran the exact sequence on this tenant via agent/b2probe.ts: " +
+      "narrow → write ACCEPTED, widen → write ACCEPTED. The narrowing never " +
+      "denied the owner's write, so the finding's premise did not occur. " +
+      "See BUGS.md B2. Re-run with: npx tsx --env-file=../.env.local b2probe.ts",
     "SKIP",
   );
 

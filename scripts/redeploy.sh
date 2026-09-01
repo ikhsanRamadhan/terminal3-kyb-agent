@@ -10,7 +10,7 @@
 # The end-to-end run matters: re-registering allocates a NEW contract_id, and if
 # the results map has a contract-scoped ACL the new id cannot write to it. Only
 # kyb-screen writes, so a read-only health check will NOT catch that. See the
-# note this script prints at the end, BUGS.md B2/B3, and HANDOVER.md.
+# note this script prints at the end, BUGS.md B3/B6, and HANDOVER.md.
 set -euo pipefail
 
 VERSION="${1:?usage: ./scripts/redeploy.sh <version>   e.g. 0.2.1}"
@@ -57,9 +57,10 @@ behaviour, not a bug). Whether you now have to do anything depends on how
 the kyb-results map was created:
 
   * Permissive map (writers: "all") — the current deployment. Nothing to
-    do. Step 5 already proved kyb-screen can write. DO NOT run fix-acl:
-    narrowing an ACL is a ONE-WAY DOOR (BUGS.md B2) and every future
-    redeploy would then need a fix-acl you can no longer widen back.
+    do. Step 5 already proved kyb-screen can write. Prefer NOT to run
+    fix-acl: a contract-scoped ACL names contract ids, every redeploy
+    allocates a new one (BUGS.md B3), and there is no API to read an ACL
+    back (B6) — so you gain a recurring manual step and no safety.
 
   * Contract-scoped map (writers: { only: [...] }) — kyb-screen in step 5
     will have failed with:

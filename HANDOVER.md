@@ -33,7 +33,8 @@ regenerate the table from it.
 
 Historical, on a **different** tenant (`did:t3n:bdf0434d…21694`): contract ids
 812 (v0.1.0) and 813 (v0.1.1), with `kyb-results` scoped to `{ only: [812, 813] }`.
-That tenant is where `BUGS.md` B2 and B3 were reproduced. It is not the current
+That tenant is where `BUGS.md` B3 was reproduced (and where the withdrawn B2
+was originally observed). It is not the current
 deployment and the current API key does not authenticate as it — mentioned only
 so the ids in `BUGS.md` are traceable.
 
@@ -137,12 +138,18 @@ behaviour, not a bug. What follows from it depends on how `kyb-results` was
 created:
 
 **Permissive map (`writers: "all"`) — the current deployment.** Nothing to do.
-Step 5 of the redeploy already wrote a certificate with the new id. **Do not run
-`fix-acl`.** It narrows the ACL, and narrowing is a one-way door (`BUGS.md` B2):
-`maps.update` can restrict an ACL but cannot widen it again — it returns success,
-charges ~70 tokens, and the map stays unwritable, with no recovery except a new
-map under a new tail. Narrowing would convert a working deployment into one that
-needs a manual, irreversible step on every future redeploy.
+Step 5 of the redeploy already wrote a certificate with the new id. **Prefer not
+to run `fix-acl`.** A contract-scoped ACL names contract ids, and B3 — which
+does reproduce — means every redeploy allocates a new one, so narrowing converts
+a working deployment into one that needs a manual re-point on every single
+deploy, with no API to read back what the ACL currently says (B6). Owner writes
+through the control plane keep working either way; it is the *contract's* write,
+i.e. `kyb-screen`, that breaks.
+
+(An earlier version of this runbook called narrowing an irreversible one-way
+door, citing B2. That finding was withdrawn after it failed to reproduce on this
+tenant — see `BUGS.md` B2. Narrowing is recoverable; it is just a recurring
+manual step you gain nothing from.)
 
 **Contract-scoped map (`writers: { only: [...] }`).** Then `kyb-screen` in step 5
 will have failed with a message that reads like a permissions mistake:
@@ -167,7 +174,8 @@ file.** There is no API to read a tail's current `contract_id` (`BUGS.md` B3) or
 a map's current ACL (B6), so this document and `npm run state` are the only
 record — and `state` cannot see the ACL.
 
-Background and repro: `BUGS.md` B2 and B3.
+Background and repro: `BUGS.md` B3 (and B2 for why the older, stronger claim
+about narrowing was withdrawn).
 
 ## Failure modes and what they mean
 

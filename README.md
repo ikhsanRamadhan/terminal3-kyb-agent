@@ -261,10 +261,12 @@ or a map's ACL (B6), so anything else is inference:
 | `agent/register-kyb.ts` | Register + map + egress grant (re-runnable) |
 | `agent/test-kyb.ts` | End-to-end suite with per-call token accounting |
 | `agent/health.ts` | Monitoring probe, exit 1 if degraded |
-| `agent/fix-acl.ts` | Narrows a map ACL to given contract ids — read B2 first |
+| `agent/fix-acl.ts` | Narrows a map ACL to given contract ids — read B3 first |
+| `agent/verify-bugs.ts` | Re-runs every `BUGS.md` finding against the live tenant |
+| `agent/b2probe.ts` | The probe that withdrew B2 — kept as the counter-evidence |
 | `agent/*probe.ts` | The scripts that produced the `BUGS.md` repros, kept as evidence |
 | `scripts/redeploy.sh` | Bump → test → build → validate → register → prove |
-| `BUGS.md` | Seven findings from this build, with repros and measured costs |
+| `BUGS.md` | Seven findings, all re-tested: six reproduce, one withdrawn |
 | `HANDOVER.md` | Runbook, whether I keep running it, how to take it over |
 
 ## Tests you can run without spending anything
@@ -316,21 +318,26 @@ cron is ~480 tokens/day.
 
 `kyb-results` is created with `writers: "all"`, which the ADK docs define as
 restricting *contracts*, not the owner. It would be tempting to scope it to the
-owning contract id instead. Two measured findings say don't:
+owning contract id instead. Don't, for one measured reason:
 
-- Re-registering a contract allocates a **new** `contract_id` (`BUGS.md` B3), so
-  a contract-scoped ACL breaks on every single redeploy — and only `kyb-screen`
-  writes, so a read-only smoke test will not notice.
-- `maps.update` can narrow an ACL but **cannot widen it again** (`BUGS.md` B2).
-  It reports success, charges 70 tokens, and the map stays unwritable. There is
-  no recovery except creating a new map under a new tail.
+Re-registering a contract allocates a **new** `contract_id` (`BUGS.md` B3,
+confirmed again by this deployment: the tail went from v0.1.0 to v0.2.0 and came
+back as id 835). A contract-scoped ACL names ids, so it breaks on every single
+redeploy — and only `kyb-screen` writes, so a read-only smoke test will not
+notice. There is also no API to read an ACL back afterwards (`BUGS.md` B6), so
+you cannot check what the current one says.
 
-Narrowing is therefore a one-way door onto a per-deploy manual step that you
-cannot undo if you get it wrong. `agent/fix-acl.ts` still ships, because a
-tenant that *has* a scoped map needs it, and `scripts/redeploy.sh` explains
-exactly when the step applies and when running it would cause the outage it
-looks like it prevents. This deployment does not need it, and step 5 of the
-redeploy proves that by writing a real certificate.
+Narrowing therefore buys a recurring manual step and no safety. `agent/fix-acl.ts`
+still ships, because a tenant that *has* a scoped map needs it, and
+`scripts/redeploy.sh` explains when the step applies. This deployment does not
+need it, and step 5 of the redeploy proves that by writing a real certificate.
+
+An earlier version of this section also claimed narrowing was irreversible,
+citing `BUGS.md` B2. That finding was withdrawn: re-running its exact sequence
+on this tenant showed the narrowing never denied the write in the first place.
+The rationale above stands on B3 alone. The withdrawal is written up in
+`BUGS.md` B2 along with the trap it did expose — nothing validates the contract
+ids you put in an ACL.
 
 ## Maintenance
 
