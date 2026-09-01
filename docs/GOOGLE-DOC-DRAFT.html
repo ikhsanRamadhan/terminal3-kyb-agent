@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Terminal 3 ADK Bounty #2 — Confidential KYB Verification Agent</title>
+<style>
+body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.45;
+       max-width: 46em; margin: 2.5em auto; padding: 0 1.5em; color: #1a1a1a; }
+h1 { font-size: 20pt; margin: 0 0 .2em; }
+h2 { font-size: 15pt; margin: 1.8em 0 .4em; border-bottom: 1px solid #d0d0d0; padding-bottom: .15em; }
+h3 { font-size: 12.5pt; margin: 1.4em 0 .3em; }
+p  { margin: .55em 0; }
+code { font-family: "Courier New", monospace; font-size: 9.5pt; background: #f4f4f4; padding: .08em .3em; }
+pre  { background: #f7f7f7; border: 1px solid #e0e0e0; padding: .8em 1em; overflow-x: auto; }
+pre code { background: none; padding: 0; font-size: 9pt; line-height: 1.35; }
+table { border-collapse: collapse; width: 100%; margin: .9em 0; font-size: 10pt; }
+th, td { border: 1px solid #cfcfcf; padding: .35em .6em; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; font-weight: bold; }
+hr { border: none; border-top: 1px solid #d8d8d8; margin: 2em 0; }
+ul { margin: .55em 0; padding-left: 1.5em; }
+ul.task { list-style: none; padding-left: .2em; }
+li { margin: .25em 0; }
+a { color: #1155cc; }
+.shot { border: 2px dashed #b04040; background: #fff6f6; color: #8a2020;
+        padding: .7em 1em; margin: 1em 0; font-weight: bold; font-size: 10pt; }
+</style></head>
+<body>
+<h1>Terminal 3 ADK Bounty #2 — Confidential KYB Verification Agent</h1>
+<p><strong>Author:</strong> Ikhsan Ramadhan <strong>Date:</strong> 1 September 2026 <strong>Time zone:</strong> UTC+7 <strong>Repo:</strong> https://github.com/ikhsanRamadhan/terminal3-kyb-agent <strong>Tenant DID:</strong> <code>did:t3n:04306a8025385e404902f1c7e988abd849265eec</code> <strong>Contract:</strong> <code>z:04306a8025385e404902f1c7e988abd849265eec:kyb</code> — id <strong>835</strong>, v<strong>0.2.0</strong></p>
+<hr>
+<h2>0. Summary</h2>
+<p>Built, deployed and verified an enterprise agent that answers the question a compliance team asks constantly — <em>is this company real, and is its identity still in good standing?</em> — inside a TEE, so the counterparty identifiers being checked never pass through the calling application.</p>
+<ul>
+<li>Quickstart — complete</li>
+<li>Set Up Dev Environment — complete</li>
+<li>Walkthrough steps 1–5 — complete, including step 5 (test) end to end</li>
+<li>Enterprise agent live on testnet at v0.2.0; <code>npm run test-kyb</code> 4/4 passing</li>
+<li>Issues filed: <strong>8</strong> (5 major, 3 minor), <strong>every one re-verified against the live tenant</strong> by a suite that ships in the repo — see §8</li>
+<li>Offline test suite: <code>cargo test</code> 7 unit tests + 1 doc-test, 0 tokens</li>
+<li>Certificate digest independently recomputed off-chain: <strong>match</strong></li>
+<li><strong>I intend to keep running it</strong>, and the handover process is written up anyway — see §10</li>
+</ul>
+<p><strong>Headline platform finding.</strong> A KV value-size ceiling of 508 bytes is reported as <code>access denied: StorageRouterOnBehalfOf(...) cannot write map</code>. A permission decision cannot depend on payload length, so the message sends developers to their ACL — which is correct and unchanged — instead of to their payload. The same <code>entrySet</code> call rejects an oversized <em>key</em> with <code>key exceeds 256 bytes (got 1024)</code>, naming the field, the limit and the actual value. One argument later in the same request, the truth is replaced by a permissions error. This killed the original design of this agent and cost about an hour before a size bisection revealed it. Details in §8, B1.</p>
+<p><strong>Headline engineering finding.</strong> EU VIES overloads <code>isValid: false</code> to mean both "not registered" and "the member state throttled you". v0.2.0 exists to stop that becoming a false accusation against a real company, and the bug fired live during this deployment's own test run. Details in §5.</p>
+<hr>
+<h2>1. Environment</h2>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Pro 26200, x86_64</td></tr>
+<tr><td>Shell</td><td>git-bash (MINGW64) and PowerShell 7</td></tr>
+<tr><td>Node / npm</td><td>v24.0.0 / 11.8.0</td></tr>
+<tr><td><code>@terminal3/t3n-sdk</code></td><td>4.46.0 — npm latest, installed with no version pin</td></tr>
+<tr><td>Rust</td><td>1.96.0</td></tr>
+<tr><td>Rust target</td><td><code>wasm32-wasip2</code></td></tr>
+<tr><td><code>wasm-tools</code></td><td>1.258.0</td></tr>
+<tr><td>Environment target</td><td><code>setEnvironment("testnet")</code></td></tr>
+<tr><td>Node URL</td><td><code>https://cn-api.sg.testnet.t3n.terminal3.io</code></td></tr>
+<tr><td>WASM artifact</td><td>229 206 bytes, <code>wasm-tools validate</code> clean</td></tr>
+</tbody></table>
+<p><strong>Worth recording as a positive.</strong> The Quickstart worked on npm latest, first try, unmodified. The previous bounty's report found the documented Quickstart completely blocked on 4.30.0 and had to pin back to 3.11.0; whatever changed between then and 4.46.0 fixed it. Registration, map creation, the egress grant and contract execution all worked on the first attempt too. The friction in this report is concentrated in error <em>messages</em> and missing read paths, not in the happy path.</p>
+<p><strong>Scoping caveat.</strong> This is one tenant on one cluster (<code>cn-api.sg.testnet</code>), on Windows. The findings below are platform-level rather than architecture-specific, so they are very likely general — but this report does not prove that, and B1's exact byte ceiling in particular may be per-cluster. Where a limit is quoted it is what this cluster did, measured, not what the platform guarantees.</p>
+<hr>
+<h2>2. Quickstart and dev environment</h2>
+<h3>2.1 Claim API key and credits</h3>
+<p>Signed in, claimed test tokens against the tenant DID above, received the API key. Stored in <code>.env.local</code>, which is git-ignored and appears nowhere in the repo, this document, or any screenshot.</p>
+<h3>2.2 Toolchain</h3>
+<pre><code>rustup target add wasm32-wasip2
+cargo install wasm-tools --locked      # 3m58s, silent for most of it</code></pre>
+<p><code>cargo install wasm-tools --locked</code> produces no output for close to four minutes. It reads as a hang. The previous bounty's report flagged this; it is still true, and still worth one line in the docs.</p>
+<h3>2.3 Connect and authenticate</h3>
+<p>Authentication is a five-step dance — resolve environment, load the WASM component, fetch the trust manifest, handshake, authenticate — and every script in this repo goes through the same helper (<code>agent/lib/session.ts</code>) so the path is exercised identically everywhere. Live output:</p>
+<pre><code>Signing address: 0xa164ffd6…22c0d8
+WASM component loaded.
+Trust manifest verified.
+
+--- Handshake ---
+Session dbb9fa85-… | authenticated: false
+
+--- Authenticate ---
+DID returned by server: did:t3n:04306a80…65eec
+Tenant control-plane baseUrl: https://cn-api.sg.testnet.t3n.terminal3.io</code></pre>
+<p><code>Trust manifest verified</code> rather than the <code>unsafe_trust_server</code> fallback, so DKG attestation was actually checked.</p>
+<div class="shot">SCREENSHOT — npm run state — tenant DID, contract 835, live_script_version 0.2.0, balance</div>
+<h3>2.4 TenantClient surface</h3>
+<p>Runtime introspection, because the SDK's read paths turned out to be narrower than expected (§8, B5):</p>
+<pre><code>tenant.maps      → [client, create, update, delete, entrySet, entryGet, getStatus]
+tenant.maps.list → absent
+tenant.contracts.list()        → ["z:04306a80…65eec:kyb"]   (names only)
+tenant.contracts.listDetailed() → object, Array.isArray = false</code></pre>
+<h3>2.5 Build and validate</h3>
+<pre><code>cargo build --target wasm32-wasip2 --release
+wasm-tools validate target/wasm32-wasip2/release/z_tenant_kyb.wasm</code></pre>
+<p>Built clean. Artifact 229 206 bytes, validates as a genuine WASM component. Its declared world exports <code>z:tenant-kyb/contracts@0.2.0</code>.</p>
+<div class="shot">SCREENSHOT — cargo build + wasm-tools validate, artifact size</div>
+<h3>2.6 Register, grant egress, test</h3>
+<pre><code>CONTRACT_VERSION=0.2.0 npm run register-kyb    # → contract_id 835
+npm run test-kyb                               # → 4/4</code></pre>
+<p>Registration allocated a <strong>new</strong> <code>contract_id</code> even though the tail was unchanged — documented platform behaviour, with an undocumented consequence for map ACLs (§8, B2). Full results in §11.</p>
+<hr>
+<h2>3. What the agent is</h2>
+<p>An enterprise KYB (Know Your Business) compliance agent. A compliance officer sends a company's VAT number and optional LEI code. The agent verifies them against two public registries — EU VIES and GLEIF — entirely inside a TEE, scores the result, persists a certificate, and commits its SHA-256 to the transaction's Merkle leaf. Only the structured verdict leaves the enclave.</p>
+<p><strong>Why this needs a TEE rather than a normal backend.</strong> A KYB lookup reveals your commercial pipeline — the suppliers you are onboarding, the acquisition target you are diligencing, the customer you are re-checking. Running it through a conventional backend puts that question <em>and</em> its full answer into application logs, APM traces, and any LLM context window in the chain. The identifiers are not secret in themselves; the <em>pattern of who you are checking</em> is the sensitive asset, and it is exactly what leaks. In a TEE, only the verdict crosses the boundary, and the enclave that produced it can be independently attested — so a counterparty can verify what code touched their identifiers instead of trusting the operator's word.</p>
+<p>Three exported functions:</p>
+<table>
+<thead><tr><th>Function</th><th>What it does</th><th>Measured cost</th></tr></thead>
+<tbody>
+<tr><td><code>verify-vat</code></td><td>VIES VAT validation, three-state: VALID / INVALID / UNKNOWN</td><td>20.04 tokens</td></tr>
+<tr><td><code>verify-lei</code></td><td>GLEIF LEI lookup, registration + entity status</td><td>20.10 tokens</td></tr>
+<tr><td><code>kyb-screen</code></td><td>Both, plus scoring, KV certificate and claims digest</td><td>190.17 tokens</td></tr>
+</tbody></table>
+<div class="shot">SCREENSHOT — verify-vat live output — status VALID for Google Ireland</div>
+<hr>
+<h2>4. Architecture</h2>
+<pre><code>caller → t3n.execute("kyb-screen", { company, vat_country, vat_number, lei? })
+   ┌─ inside the enclave ────────────────────────────────────────────────┐
+   │ http GET ec.europa.eu/…/vies/rest-api/ms/{CC}/vat/{NUM}             │
+   │ http GET api.gleif.org/api/v1/lei-records/{LEI}        (if supplied) │
+   │ classify()  →  VALID | INVALID | UNKNOWN     pure, no I/O            │
+   │ risk_band() →  LOW | MEDIUM | HIGH | UNKNOWN pure, no I/O            │
+   │ sha256(certificate)                                                  │
+   │ kv_store::put("z:&lt;tid&gt;:kyb-results", key, certificate)               │
+   │ kv_store::set_claims_digest(hash)   → Merkle leaf of this tx         │
+   └─────────────────────────────────────────────────────────────────────┘
+← { vat_status, vat_name, lei_*, risk_score, risk_level, inconclusive[], digest }</code></pre>
+<p>Host interfaces declared in <code>wit/world.wit</code>: <code>tenant-context@1.0.0</code>, <code>logging@2.1.0</code>, <code>kv-store@2.1.0</code>, <code>http@2.1.0</code>.</p>
+<p><strong>Deliberately not imported:</strong> <code>http-with-placeholders@2.1.0</code>. It exists to keep <code>{{profile.*}}</code> PII out of WASM memory. These are GET requests against public registries carrying no personal data, so importing it would widen the contract's capability surface for no benefit. Narrowing the declared world is the one security decision a contract author fully controls, and it should be used.</p>
+<p><strong>The certificate is bounded by construction.</strong> Because a KV value cannot exceed 508 bytes on this cluster (§8, B1) and the failure is reported as a permissions error rather than a size error, every field sourced from an upstream registry is clipped, derivable fields are not stored at all, and the subject is identified by the KV <em>key</em> rather than repeated in the value. A unit test (<code>worst_case_certificate_fits_kv_limit</code>) builds the certificate with every field at its type maximum and fails the build if it would breach the ceiling. That test exists because of B1.</p>
+<div class="shot">SCREENSHOT — kyb-screen live output with digest</div>
+<hr>
+<h2>5. The bug this version exists to fix</h2>
+<p>VIES overloads <code>isValid: false</code>. It means "not registered" <strong>only</strong> when <code>userError == "INVALID"</code>. The same field is false when the member state throttled or dropped the query — <code>MS_MAX_CONCURRENT_REQ</code>, <code>MS_UNAVAILABLE</code>, <code>TIMEOUT</code>. Observed live: three requests seconds apart returned VALID, MS_MAX_CONCURRENT_REQ, VALID for the same number.</p>
+<p>Version 0.1.x read <code>isValid</code> as a boolean. That turned a busy Dutch registry into <em>"ALBERT HEIJN B.V.'s VAT number is fake"</em> — scoring +40 risk against a real supermarket chain because a government API was rate-limiting.</p>
+<p>Version 0.2.0 classifies into three states. <code>UNKNOWN</code> means "no answer", not "no". Anything inconclusive lands in <code>inconclusive[]</code> and forces <code>risk_level: "UNKNOWN"</code>, which a caller must handle as "re-run this" rather than as a pass or a fail. It fired during the deployment's own test run:</p>
+<pre><code>{ "vat_status": "UNKNOWN", "vat_name": "---",
+  "lei_registration_status": "NOT_PROVIDED",
+  "lei_entity_status": "NOT_PROVIDED", "lei_name": "",
+  "risk_score": 0, "risk_level": "UNKNOWN",
+  "inconclusive": ["vat:MS_MAX_CONCURRENT_REQ"],
+  "timestamp": 1788251994, "contract_id": 835,
+  "digest": "22329c9722f76af11fdbb188c7e38a540f0395ab2deb0e7d4fc743532616573a" }</code></pre>
+<p>This is not a T3N bug, which is why it is not numbered in §8. It is recorded here and in the contract source because anyone building a compliance agent on this platform will hit it, and because a "compliance" agent that cannot tell <em>no</em> from <em>no answer</em> is worse than no agent at all.</p>
+<p>Two pure functions carry the logic — <code>classify()</code> and <code>risk_band()</code> — and both are unit-tested offline, because these are exactly the places where a mistake is silent in production.</p>
+<hr>
+<h2>6. Why this is useful to an enterprise</h2>
+<p>Every B2B onboarding flow needs KYB screening. Today it is one of:</p>
+<ul>
+<li>Manual lookup on the VIES and GLEIF websites — slow, no audit trail</li>
+<li>A SaaS compliance API — sends your counterparty identifiers to a third party</li>
+<li>An internal service — identifiers in application logs and traces</li>
+</ul>
+<p>This agent does it in one call, inside a TEE, with a verifiable audit trail.</p>
+<p><strong>The audit trail is real, not asserted.</strong> The certificate is persisted and its SHA-256 is committed to the transaction's Merkle leaf via <code>set_claims_digest</code>. <code>getActivityLog</code> returned 53 entries for this tenant at the time of writing, each carrying <code>seq_no, hash, timestamp_ms, caller_type, actor, on_behalf_of, org, contract, function, outcome</code> — and 53 64-hex digests are present and readable back. I checked, because a verifiability claim you have not read back is a marketing claim.</p>
+<p><strong>Digest verification is reproducible by anyone holding a certificate:</strong></p>
+<pre><code>node -e '
+const {createHash} = require("crypto");
+const cert = JSON.parse(process.argv[1]);
+console.log(createHash("sha256")
+  .update(JSON.stringify({ ...cert, digest: "" }))
+  .digest("hex") === cert.digest ? "MATCH" : "MISMATCH");
+' '&lt;certificate JSON&gt;'</code></pre>
+<p>Tested against the live deployment: <strong>MATCH</strong>.</p>
+<p><strong>Risk scoring is a pure function</strong> — same inputs, same score, on any node, no clock, no randomness, no I/O:</p>
+<table>
+<thead><tr><th>Signal</th><th>Weight</th></tr></thead>
+<tbody>
+<tr><td>VAT number explicitly <code>INVALID</code> in VIES</td><td>+40</td></tr>
+<tr><td>LEI supplied but not resolved</td><td>+30</td></tr>
+<tr><td>LEI registration <code>LAPSED</code> / <code>RETIRED</code></td><td>+20</td></tr>
+<tr><td>Entity status <code>INACTIVE</code></td><td>+20</td></tr>
+<tr><td>Name mismatch between the two registries</td><td>+10</td></tr>
+<tr><td><strong>Any source did not answer</strong></td><td><strong>band forced to <code>UNKNOWN</code></strong></td></tr>
+</tbody></table>
+<p>The last row matters most: an unanswered source is never scored as a negative finding. Weights live in one <code>match</code> and a handful of <code>if</code>s in <code>contract-kyb/src/kyb_screen.rs</code>. There is no rules engine and no config store, deliberately — a scoring policy that can change without a redeploy is a policy you cannot audit against the Merkle trail.</p>
+<hr>
+<h2>7. Ease of maintenance</h2>
+<p>This is the criterion the bounty marks VERY IMPORTANT, and the answer here is structural rather than a promise to be diligent.</p>
+<ul>
+<li><strong>No credentials.</strong> VIES and GLEIF need no API key. There is no <code>secrets</code> map in the deployment, nothing to rotate, nothing to leak.</li>
+<li><strong>No mutable state on the read path.</strong> <code>verify-vat</code> and <code>verify-lei</code> are pure request/response. Only <code>kyb-screen</code> writes, and only append-only certificates.</li>
+<li><strong>Offline test suite</strong> — <code>cargo test</code>, 7 unit tests + 1 doc-test, zero tokens, zero network. Run before any deploy.</li>
+<li><strong>A regression test on the bug report itself</strong> — <code>npm run verify-bugs</code> re-runs all eight findings against the live tenant and exits non-zero if any claim in BUGS.md stops being true. Details in §8.</li>
+<li><strong>Read-only state probe</strong> — <code>npm run state</code>, 0 tokens, the authoritative answer to "what is actually deployed right now". This exists because the platform has no read path for it (§8, B2/B5).</li>
+<li><strong>Health check</strong> — <code>npm run health</code>, one JSON line, exit 1 if degraded. A throttled upstream reports as healthy-with-noise, not as an outage, so a cron entry does not cry wolf.</li>
+<li><strong>Redeploy is one command</strong> — <code>scripts/redeploy.sh 0.2.1</code> — which bumps both version files, tests offline <em>before</em> spending anything, validates the component, registers, and proves the result end to end after.</li>
+<li><strong>No web UI, no database, no CI secrets.</strong> The whole agent is one repository plus a token balance.</li>
+</ul>
+<p>The failure mode that used to be silent is now impossible to miss: an upstream that does not answer produces <code>risk_level: "UNKNOWN"</code> and a named upstream code, never a wrong verdict.</p>
+<div class="shot">SCREENSHOT — npm run health — healthy=true</div>
+<div class="shot">SCREENSHOT — cargo test — 7 passed + 1 doc-test</div>
+<hr>
+<h2>8. Findings</h2>
+<p>Eight findings. Before submitting, <strong>every one was re-run against the live tenant</strong> with <code>npm run verify-bugs -- --paid</code> and <code>npm run hunt</code>. All eight reproduce. An earlier draft carried a ninth that did not survive re-testing; it was deleted rather than shipped, because a report is only worth the weakest claim in it. Full details, repro steps and <code>request_id</code>s in BUGS.md.</p>
+<p><strong>Severity key.</strong> <strong>Major</strong> — documented behaviour is wrong, or the error names the wrong subsystem and sends the developer to the wrong place. <strong>Minor</strong> — cosmetic or a missing convenience.</p>
+<table>
+<thead><tr><th>ID</th><th>Severity</th><th>One-line summary</th></tr></thead>
+<tbody>
+<tr><td>B1</td><td>Major</td><td>KV value-size limit reported as <code>access denied</code>, while the key limit on the same call reports itself correctly</td></tr>
+<tr><td>B2</td><td>Major</td><td>Re-registering orphans map ACLs; no API to read a tail's current contract id</td></tr>
+<tr><td>B3</td><td>Major</td><td><code>getScriptVersion</code> renamed to <code>getContractVersion</code> with no deprecation or changelog entry</td></tr>
+<tr><td>B4</td><td>Minor</td><td><code>maps.create</code> warns about <code>readers</code>, then the server rejects for <code>writers</code></td></tr>
+<tr><td>B5</td><td>Minor</td><td><code>tenant.maps.list()</code> does not exist; <code>listDetailed()</code> does not return an array</td></tr>
+<tr><td>B6</td><td>Minor</td><td>Unhandled SDK rejections print a 1.25 MB minified bundle</td></tr>
+<tr><td>B7</td><td>Major</td><td><code>script_version</code> accepted without validation and does not select a version</td></tr>
+<tr><td>B8</td><td>Major</td><td>Map ACL accepts contract ids that do not exist, and charges for it</td></tr>
+</tbody></table>
+<h3>How they were verified</h3>
+<p><code>agent/verify-bugs.ts</code> re-runs every claim and prints PASS/FAIL per finding. Verbatim from <code>npm run verify-bugs -- --paid</code>:</p>
+<pre><code>  PASS B3   getScriptVersion is gone in 4.46.0, getContractVersion is the replacement, no
+  PASS B6   SDK ships as a single ~1.25 MB minified line with no source map
+  PASS B5   tenant.maps has no list(); contracts.listDetailed() does not return an array
+  PASS B2a  contracts.list() returns names only — no way to read a tail's current contract
+  PASS B2b  re-registering the same tail allocates a NEW contract_id
+  PASS B4   maps.create warns about `readers` client-side, then the server rejects for mis
+  PASS B1   508-byte value accepted, 512 rejected, and the rejection names the permission
+  PASS B7   an unregistered script_version is accepted, and a requested version does not s
+  PASS B8   readers/writers accept a contract id with no contract behind it, and charge fo
+
+  9 still reproduce, 0 no longer true, 0 not run
+  spent: 360.59 tokens</code></pre>
+<p>The suite is a regression test on the report, not a one-off script. It has already earned its keep twice: it caught B6 overstating a bundle size by 60% (claimed "~2 MB", measured 1.25 MB, and the file was <code>index.js</code> not <code>index.esm.js</code>), and it is why the ninth finding was withdrawn.</p>
+<h3>The finding behind the findings</h3>
+<p>Three subsystems share one failure pattern, and it is worth more than any single bug on the list: <strong>where this platform validates an input it produces an excellent error, and where it does not, the failure surfaces from an unrelated subsystem and blames the developer's permissions.</strong></p>
+<table>
+<thead><tr><th>Same API surface, two inputs</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>entrySet</code> key over 256 bytes</td><td><code>invalid key for map "…": key exceeds 256 bytes (got 1024)</code></td></tr>
+<tr><td><code>entrySet</code> value over 508 bytes</td><td><code>access denied: StorageRouterOnBehalfOf(…) cannot write map</code></td></tr>
+<tr><td><code>execute</code> with unknown <code>function_name</code></td><td>names every interface it searched, and the version</td></tr>
+<tr><td><code>execute</code> with unregistered <code>script_version</code></td><td>accepted, silently runs a different version</td></tr>
+<tr><td><code>maps.update</code> with a real contract id</td><td>accepted</td></tr>
+<tr><td><code>maps.update</code> with id <code>999999999</code></td><td>accepted, charged, unverifiable afterwards</td></tr>
+</tbody></table>
+<p>Each pair is the same call. A developer cannot tell from the error whether they have hit a real permission problem or an unvalidated input — which is exactly what cost about an hour of ACL debugging on B1 for what was a payload-size limit. The fix is not eight fixes; it is one principle applied in three more places, and the platform already demonstrates it in the key-length path.</p>
+<h3>Documentation observations (not bugs)</h3>
+<ul>
+<li><strong>Token costs are undocumented.</strong> Measured on this tenant: <code>contracts.register</code> 1380.18, <code>maps.create</code> 40.07 when it no-ops on an existing map (~150 fresh), <code>map-entry-set</code> 70–90, <code>updateAgentAuth</code> 130.31, <code>verify-vat</code> 20.04, <code>verify-lei</code> 20.10, <code>kyb-screen</code> 190.17, <code>getActivityLog</code> / <code>getBalance</code> / <code>contracts.list</code> 0. Rejected writes charge 0. A rough table on the reference page would let developers size a token grant before writing any code.</li>
+<li><strong>An undocumented 256-byte KV key limit</strong> — discovered only because its error message is good (see B1).</li>
+<li>The <a href="https://docs.terminal3.io/developers/adk/tips/outbound-http-auth-by-user">outbound-http-auth-by-user</a> page is the single most useful page in the ADK docs — "the code is fine, but no grant authorizes the host" is exactly the failure developers hit. Worth linking from the write-contract page's <code>http::call</code> section, not only from invoke.</li>
+<li><code>wasm-tools component wit</code> shows 13 <code>wasi:io</code> / <code>wasi:cli</code> imports that <code>wit/world.wit</code> never declares, <code>wasi:cli/environment</code> among them. The host loads it fine, so they are evidently injected by the <code>wasm32-wasip2</code> target and ignored at load. The capability model page states imports <em>are</em> the capability set, so this deserves one sentence saying WASI-target imports are exempt. The previous bounty's report raised this for the reference contract; it reproduces on an independently written one.</li>
+<li>No supported Node version range is stated anywhere in the docs.</li>
+</ul>
+<div class="shot">SCREENSHOT — npm run verify-bugs — all eight PASS</div>
+<div class="shot">SCREENSHOT — B1 — access denied at 512 bytes beside the correct key-size error</div>
+<div class="shot">SCREENSHOT — B7 — script_version 9.9.9 returning a successful 0.2.0 response</div>
+<hr>
+<h2>9. Beyond this contract</h2>
+<h3>9.1 What I would build next</h3>
+<p><strong>Name:</strong> <code>kyb-watch</code> <strong>Exercises:</strong> the same two upstreams plus scheduled re-screening and diffing against the stored certificate history in <code>kyb-results</code>.</p>
+<p>KYB is not a one-time check. An entity that was <code>ISSUED / ACTIVE</code> at onboarding can lapse, be retired, or go inactive months later, and the obligation to notice sits with the onboarding party. <code>kyb-screen</code> answers "is this company in good standing <em>today</em>"; <code>kyb-watch</code> would answer "what changed since we last looked", by re-screening a portfolio and emitting only the deltas — each delta carrying its own claims digest so the <em>timeline</em> becomes auditable, not just individual verdicts.</p>
+<h3>9.2 What is missing from the ADK to build it today</h3>
+<p>This is the section I would most want read, because these are not bugs but absences, and they are what actually bound what can be built.</p>
+<ul>
+<li><strong>No scheduler, and no documented pattern for one.</strong> A watch contract needs to run on a cadence. Everything in the ADK is caller-driven, so today the cadence has to live outside the TEE — which means an external cron holds the list of entities being monitored. That list is precisely the sensitive asset the TEE was supposed to protect (§3). A host-side timer that can invoke a contract, even a coarse one, would keep the portfolio inside the enclave.</li>
+<li><strong>KV cannot hold a portfolio.</strong> At 508 bytes per value (B1) with no documented list or range-scan primitive, and no <code>maps.list()</code> (B5), there is no way to iterate "every entity I am watching". <code>entryGet</code> by exact key is the only read. This is the same wall that killed the original sanctions-screening design for this bounty: the EU consolidated list runs to roughly 6 300 names and OFAC SDN to roughly 19 300, and neither fits in a 508-byte value at any sane chunking. Sanctions matching wants a different storage primitive, and so does portfolio monitoring.</li>
+<li><strong>No outbound notification primitive.</strong> A delta that nobody is told about is not monitoring. <code>http::call</code> can POST to a webhook, but the URL and any signing secret then need to live in a <code>secrets</code> map — and the walkthrough only covers secrets seeded manually by the developer, with no documented path for a third party to pre-provision them. The previous bounty's report hit the same absence from the opposite direction, with a Duffel API key it had no documented way to obtain.</li>
+<li><strong>No response-side redaction.</strong> <code>http-with-placeholders</code> resolves placeholders on the way <em>out</em>. There is no equivalent for filtering an upstream response on the way back, so a contract that calls an API returning more than it should expose has to be trusted to drop the extra fields itself. For this agent that is fine — I control the parsing and only the verdict is returned. For a contract handling regulated data it is the difference between "the enclave cannot leak this" and "the enclave author remembered not to".</li>
+</ul>
+<p>The honest summary: <code>kyb-screen</code> fits the ADK as it exists today because it is stateless per call, keyless, and returns a small verdict. The moment a use case needs <em>state that outlives one call</em>, the storage and scheduling primitives run out well before the security model does.</p>
+<hr>
+<h2>10. Post-challenge operation</h2>
+<p><strong>I intend to keep running this agent.</strong> The reasoning is structural, not enthusiastic: there is very little here that can rot. No credentials to rotate, no mutable state on the read path, two government-operated upstreams that are versioned in their own paths, one command to redeploy, and a health check that exits non-zero when something is actually wrong.</p>
+<p>I would also be interested in the startup program / listing page.</p>
+<p><strong>If Terminal 3 would rather take it over, that is a clean handover</strong> — and the runbook is written whether or not it is needed. The whole agent is this repository plus a token balance. There is no external service, no database, no dashboard, no DNS, no CI secret. <code>HANDOVER.md</code> covers prerequisites, daily operation, monitoring, topping up tokens, the redeploy procedure and its one manual step, failure modes and what they mean, upstream dependency risks, how to change the risk policy, and a from-scratch deploy on a fresh tenant (~1700 tokens, no data migration — <code>kyb-results</code> is an append-only log and every certificate is independently verifiable from its digest).</p>
+<hr>
+<h2>11. Test results</h2>
+<p>All four end-to-end tests pass on live testnet (contract 835, v0.2.0):</p>
+<pre><code>Test 1: verify-vat (Google Ireland, IE/6388047V)
+  status: VALID, name: GOOGLE IRELAND LIMITED ✓
+
+Test 2: verify-lei (Siemens Energy, 5299004MG7BJU2QS6Q75)
+  registration_status: ISSUED, entity_status: ACTIVE ✓
+
+Test 3: kyb-screen (Albert Heijn, NL/002230884B01)
+  vat_status: UNKNOWN (VIES throttled — correctly reported, not scored)
+  risk_level: UNKNOWN, inconclusive: ["vat:MS_MAX_CONCURRENT_REQ"]
+  digest: 22329c97…573a — recomputed off-chain: MATCH ✓
+
+Test 4: verify-vat (invalid number, DE/999999999)
+  status: INVALID ✓</code></pre>
+<p>Test 3 is the one worth looking at: it caught a live upstream throttle and reported it as <em>unknown</em> rather than as a fake VAT number. That is the entire point of v0.2.0, and it happened on its own during the deployment.</p>
+<p>Token costs measured during this deployment:</p>
+<table>
+<thead><tr><th>Operation</th><th>Tokens</th></tr></thead>
+<tbody>
+<tr><td><code>contracts.register</code> (229 KB wasm)</td><td>1380.18</td></tr>
+<tr><td><code>maps.create</code> (existing map, no-op)</td><td>40.07</td></tr>
+<tr><td><code>updateAgentAuth</code> (egress grant)</td><td>130.31</td></tr>
+<tr><td><code>verify-vat</code></td><td>20.04</td></tr>
+<tr><td><code>verify-lei</code></td><td>20.10</td></tr>
+<tr><td><code>kyb-screen</code></td><td>190.17</td></tr>
+<tr><td><strong>Full deployment</strong></td><td><strong>1550.56</strong></td></tr>
+<tr><td>Bug re-verification suite</td><td>360.59</td></tr>
+</tbody></table>
+<p>Steady state is ~20 tokens per single lookup and ~190 per full screening. The expensive events are deployments, not queries — an hourly health cron is about 480 tokens/day.</p>
+<div class="shot">SCREENSHOT — full npm run test-kyb output — 4/4</div>
+<hr>
+<h2>12. Repo contents</h2>
+<table>
+<thead><tr><th>Path</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><code>contract-kyb/src/verify_vat.rs</code></td><td>VIES client + <code>classify()</code>, the three-state fix</td></tr>
+<tr><td><code>contract-kyb/src/verify_lei.rs</code></td><td>GLEIF client, both status paths</td></tr>
+<tr><td><code>contract-kyb/src/kyb_screen.rs</code></td><td>Scoring, certificate, digest, KV write, size bound</td></tr>
+<tr><td><code>contract-kyb/wit/world.wit</code></td><td>Declared capability set</td></tr>
+<tr><td><code>agent/lib/session.ts</code></td><td>Shared authenticated-session bootstrap</td></tr>
+<tr><td><code>agent/register-kyb.ts</code></td><td>Register + map + egress grant, re-runnable</td></tr>
+<tr><td><code>agent/test-kyb.ts</code></td><td>End-to-end suite with per-call token accounting</td></tr>
+<tr><td><code>agent/state.ts</code></td><td>Read-only deployment probe, 0 tokens</td></tr>
+<tr><td><code>agent/health.ts</code></td><td>Monitoring probe, exit 1 if degraded</td></tr>
+<tr><td><code>agent/verify-bugs.ts</code></td><td>Re-runs all eight findings; exit 1 if a claim is stale</td></tr>
+<tr><td><code>agent/hunt.ts</code></td><td>Exploratory probe suite that found B7 and B8</td></tr>
+<tr><td><code>agent/fix-acl.ts</code></td><td>Narrows a map ACL — read B2 and B8 before running it</td></tr>
+<tr><td><code>scripts/redeploy.sh</code></td><td>Bump → test → build → validate → register → prove</td></tr>
+<tr><td><code>README.md</code></td><td>Architecture, trust model, setup, usage</td></tr>
+<tr><td><code>BUGS.md</code></td><td>All eight findings with repros, <code>request_id</code>s and measured costs</td></tr>
+<tr><td><code>HANDOVER.md</code></td><td>Runbook, whether I keep running it, how to take it over</td></tr>
+</tbody></table>
+<hr>
+<h2>Pre-submit checklist</h2>
+<ul class="task">
+<li>☐ API key appears nowhere in the repo, this doc, or any screenshot — check every screenshot twice</li>
+<li>☐ <code>.env.local</code> git-ignored and git history verified clean of any key</li>
+<li>☐ Screenshots captured, legible, and matched to their section</li>
+<li>☐ Repo public — verified in a private window</li>
+<li>☐ Doc set to anyone-with-link-can-view — verified in a private window</li>
+<li>☐ Doc links to repo; README links back to the published doc URL</li>
+<li>☐ B1 and B7 also reported in the developer Telegram — a misleading error and a silently-ignored version field are both worth telling them before judging</li>
+<li>☐ Shared on X tagging @terminal3io</li>
+<li>☐ <code>npm run verify-bugs -- --paid</code> re-run immediately before submitting; every claim still PASS</li>
+<li>☐ Final proofread</li>
+</ul>
+</body></html>

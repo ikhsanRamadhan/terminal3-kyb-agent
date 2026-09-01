@@ -24,7 +24,7 @@ and paste the post URL into the submission doc.
 > Caught it live mid-deploy: a Dutch supermarket came back
 > MS_MAX_CONCURRENT_REQ. v0.2.0 reports UNKNOWN instead of a verdict.
 >
-> 7 platform bugs filed with measured repros. Full writeup + repo 👇
+> 8 platform bugs filed with measured repros. Full writeup + repo 👇
 > https://github.com/ikhsanRamadhan/terminal3-kyb-agent
 
 Attach: the `kyb-screen` output screenshot showing
@@ -76,7 +76,7 @@ That single frame is the whole story.
 > [screenshot]
 
 **7/**
-> Also filed 7 platform bugs with measured token costs and repros. Favourite:
+> Also filed 8 platform bugs with measured token costs and repros. Favourite:
 > a KV value-size ceiling (508 bytes) reported as `access denied ... cannot
 > write map`.
 >
