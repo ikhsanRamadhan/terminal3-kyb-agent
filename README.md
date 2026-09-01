@@ -303,14 +303,14 @@ deployment, not an estimate.
 | `updateAgentAuth` | 130.31 |
 | `verify-vat` (one outbound GET) | 20.04 |
 | `verify-lei` (one outbound GET) | 20.10 |
-| `kyb-screen` (GET + KV write + claims digest) | 190.17 |
+| `kyb-screen` (GET + KV write + claims digest) | 170.16–190.17 |
 | `getBalance`, `contracts.list`, `getContractVersion`, `getActivityLog` | 0 |
 | Any rejected write | 0 |
 
 Full deployment: **1550.56 tokens** (17 628.43 → 16 077.86). A verified cycle
 including the four end-to-end calls: **~1801 tokens**.
 
-Steady-state operation is ~20 tokens per single check and ~190 per full
+Steady-state operation is ~20 tokens per single check and ~170 per full
 screening. The expensive events are deployments, not queries — an hourly health
 cron is ~480 tokens/day.
 

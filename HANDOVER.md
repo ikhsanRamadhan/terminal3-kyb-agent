@@ -64,7 +64,7 @@ cd ../contract-kyb && cargo test    # 7/7, offline, free — do this before anyt
 ## Daily operation
 
 Nothing to do. The contract is invoked on demand and holds no background
-process. Steady-state cost is ~20 tokens per single lookup, ~190 per full
+process. Steady-state cost is ~20 tokens per single lookup, ~170 per full
 `kyb-screen`.
 
 ### First command, every time

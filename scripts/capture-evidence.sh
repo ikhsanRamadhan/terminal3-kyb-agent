@@ -3,10 +3,9 @@
 #
 #   ./scripts/capture-evidence.sh
 #
-# Each shot is numbered to match a [SCREENSHOT: ...] placeholder in
-# docs/GOOGLE-DOC-DRAFT.md, so there is no guessing about which capture goes
-# where. Prints a self-labelling banner, then pauses — press Enter when you
-# have the shot.
+# Each shot is numbered and labelled with the section of the submission write-up
+# it belongs to, so there is no guessing about which capture goes where. Prints
+# a self-labelling banner, then pauses — press Enter when you have the shot.
 #
 # Cost: ~700 tokens total.
 #   free   : cargo test, wasm validate, state, verify-bugs (offline+session part)
