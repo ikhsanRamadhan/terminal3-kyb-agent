@@ -105,16 +105,14 @@ pause
 
 # ---------------------------------------------------------------- §8, B1
 banner 8 "B1 — access denied at 512 bytes beside the correct key-size error" \
-        "npm run hunt -- --paid   (key limit) + verify-bugs B1 row above"
+        "npm run hunt -- --b1"
 cat <<'NOTE'
-This is the single most important shot in the report. It needs BOTH errors
-visible together: the value-size rejection that blames permissions, and the
-key-size rejection that names the limit correctly. The hunt probe prints the
-key-length boundary; the B1 row in SHOT 7 above printed the value boundary.
-Capture them in one frame if your terminal scrollback allows.
+The single most important shot in the report. Both size limits are printed
+adjacently by one probe, so this is a self-contained frame: the key path names
+the field and the limit, the value path blames permissions.
 NOTE
 echo
-npm run hunt -- --paid 2>&1 | filter | sed -n '/H5/,$p'
+npm run hunt -- --b1 2>&1 | filter | sed -n '/B1 side-by-side/,$p'
 pause
 
 # ---------------------------------------------------------------- §8, B7

@@ -80,22 +80,82 @@ async function huntVersionResolution(s: T3nSession): Promise<void> {
   );
 }
 
-/** H3 — error shape for a map that does not exist. */
+/**
+ * H3 — what does getStatus do for a map that does not exist?
+ *
+ * Returning a value beats throwing here: it gives the tenant a way to test map
+ * existence by name, which is the one piece of storage introspection that does
+ * work (BUGS.md B5 says so). Only an *error* that fails to name the map it
+ * failed on would be a finding.
+ */
 async function huntMissingMap(s: T3nSession): Promise<void> {
   let observed: string;
+  let threw = false;
   try {
     const st = await s.tenant.maps.getStatus("definitely_not_a_real_map_xyz");
-    observed = `returned ${JSON.stringify(st)} instead of erroring`;
+    observed = `returned ${JSON.stringify(st)} — no error`;
   } catch (e: unknown) {
+    threw = true;
     observed = `threw: ${msg(e)}`;
   }
   const namesTheMap = /definitely_not_a_real_map_xyz/.test(observed);
   report(
     "H3",
-    namesTheMap ? "OK" : "FINDING",
+    !threw ? "INFO" : namesTheMap ? "OK" : "FINDING",
     'maps.getStatus("definitely_not_a_real_map_xyz")',
     observed,
-    namesTheMap ? "Error identifies the map — actionable." : "Error does not name the map it failed on.",
+    !threw
+      ? 'Reports absence as a value rather than an exception, so map existence IS testable by name. Enumeration still is not (B5).'
+      : namesTheMap
+        ? "Error identifies the map — actionable."
+        : "Error does not name the map it failed on.",
+  );
+}
+
+/**
+ * H9 — B1 in a single frame: the same call, two size limits, two different
+ * standards of error message.
+ *
+ * This is the report's headline evidence, so it is worth printing both
+ * boundaries adjacently rather than asking a reader to hold two screenshots
+ * side by side. Costs ~140 tokens: the two accepted writes are charged, the two
+ * rejections are free.
+ */
+async function huntB1SideBySide(s: T3nSession): Promise<void> {
+  const TAIL = "b1probe";
+  const write = async (key: string, value: string): Promise<string> => {
+    try {
+      await s.tenant.maps.entrySet(TAIL, key, value);
+      return "accepted";
+    } catch (e: unknown) {
+      return `rejected: ${msg(e)}`;
+    }
+  };
+
+  const key256 = await write("k".repeat(256), "v");
+  const key1024 = await write("k".repeat(1024), "v");
+  const val508 = await write("size508", "x".repeat(508));
+  const val512 = await write("size512", "x".repeat(512));
+
+  console.log("\n  === B1: one call, two size limits ===");
+  console.log(`  key    256 bytes → ${key256}`);
+  console.log(`  key   1024 bytes → ${key1024}`);
+  console.log(`  value  508 bytes → ${val508}`);
+  console.log(`  value  512 bytes → ${val512}`);
+  console.log("");
+  console.log("  The key path names the field, the limit and the actual value.");
+  console.log("  The value path blames the permission subsystem instead.");
+
+  const keyNamesSize = /key exceeds|bytes \(got/i.test(key1024);
+  const valBlamesPerms = /access denied|cannot write/i.test(val512);
+  report(
+    "H9",
+    keyNamesSize && valBlamesPerms ? "FINDING" : "OK",
+    "entrySet with an oversized key and an oversized value, on the same map",
+    `key 1024 → ${key1024.slice(0, 120)}\n            value 512 → ${val512.slice(0, 120)}`,
+    keyNamesSize && valBlamesPerms
+      ? "Confirms B1 with the platform's own control case: the same endpoint reports one size limit correctly and the other as a permissions failure."
+      : "The two paths now report size errors consistently.",
   );
 }
 
@@ -281,6 +341,7 @@ async function huntBogusRouting(s: T3nSession): Promise<void> {
 async function main(): Promise<void> {
   const paid = process.argv.includes("--paid");
   const shadow = process.argv.includes("--shadow");
+  const b1 = process.argv.includes("--b1");
   const s = await openT3nSession();
   const before = ((await s.t3n.getBalance()) as { available: number }).available;
 
@@ -294,6 +355,11 @@ async function main(): Promise<void> {
   if (paid) {
     await huntBogusAclId(s);
     await huntKeyLimit(s);
+  }
+
+  console.log(`\n=== B1 side-by-side ${b1 ? "(running, ~140 tokens)" : "(skipped — pass --b1)"} ===`);
+  if (b1) {
+    await huntB1SideBySide(s);
   }
 
   console.log(`\n=== version-shadowing probe ${shadow ? "(running, ~80 tokens)" : "(skipped — pass --shadow)"} ===`);

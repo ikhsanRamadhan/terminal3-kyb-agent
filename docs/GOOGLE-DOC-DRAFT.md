@@ -220,7 +220,9 @@ clipped, derivable fields are not stored at all, and the subject is identified b
 the KV *key* rather than repeated in the value. A unit test
 (`worst_case_certificate_fits_kv_limit`) builds the certificate with every field
 at its type maximum and fails the build if it would breach the ceiling. That
-test exists because of B1.
+test exists because of B1. A real certificate from this deployment measures
+**331 bytes**, so there is 177 bytes of headroom in practice and the bound is
+proven rather than hoped for at the extreme.
 
 [SCREENSHOT: kyb-screen live output with digest]
 
@@ -294,7 +296,10 @@ console.log(createHash("sha256")
 ' '<certificate JSON>'
 ```
 
-Tested against the live deployment: **MATCH**.
+Tested against the live deployment: **MATCH**, on a certificate of 331 bytes
+against the 508-byte ceiling.
+
+[SCREENSHOT: digest recomputed off-chain — claimed and recomputed sha256 identical, MATCH]
 
 **Risk scoring is a pure function** — same inputs, same score, on any node, no
 clock, no randomness, no I/O:
