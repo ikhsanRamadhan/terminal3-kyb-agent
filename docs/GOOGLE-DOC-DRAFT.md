@@ -455,7 +455,7 @@ and the platform already demonstrates it in the key-length path.
 
 [SCREENSHOT: B1 — access denied at 512 bytes beside the correct key-size error]
 
-[SCREENSHOT: B7 — script_version 9.9.9 returning a successful 0.2.0 response]
+[SCREENSHOT: B7 — script_version 9.9.9 running 0.2.0, beside the same call's function_name and script_name both being properly rejected]
 
 ---
 

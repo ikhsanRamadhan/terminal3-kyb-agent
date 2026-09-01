@@ -123,7 +123,7 @@ npm run test-kyb                               # → 4/4</code></pre>
 ← { vat_status, vat_name, lei_*, risk_score, risk_level, inconclusive[], digest }</code></pre>
 <p>Host interfaces declared in <code>wit/world.wit</code>: <code>tenant-context@1.0.0</code>, <code>logging@2.1.0</code>, <code>kv-store@2.1.0</code>, <code>http@2.1.0</code>.</p>
 <p><strong>Deliberately not imported:</strong> <code>http-with-placeholders@2.1.0</code>. It exists to keep <code>{{profile.*}}</code> PII out of WASM memory. These are GET requests against public registries carrying no personal data, so importing it would widen the contract's capability surface for no benefit. Narrowing the declared world is the one security decision a contract author fully controls, and it should be used.</p>
-<p><strong>The certificate is bounded by construction.</strong> Because a KV value cannot exceed 508 bytes on this cluster (§8, B1) and the failure is reported as a permissions error rather than a size error, every field sourced from an upstream registry is clipped, derivable fields are not stored at all, and the subject is identified by the KV <em>key</em> rather than repeated in the value. A unit test (<code>worst_case_certificate_fits_kv_limit</code>) builds the certificate with every field at its type maximum and fails the build if it would breach the ceiling. That test exists because of B1.</p>
+<p><strong>The certificate is bounded by construction.</strong> Because a KV value cannot exceed 508 bytes on this cluster (§8, B1) and the failure is reported as a permissions error rather than a size error, every field sourced from an upstream registry is clipped, derivable fields are not stored at all, and the subject is identified by the KV <em>key</em> rather than repeated in the value. A unit test (<code>worst_case_certificate_fits_kv_limit</code>) builds the certificate with every field at its type maximum and fails the build if it would breach the ceiling. That test exists because of B1. A real certificate from this deployment measures <strong>331 bytes</strong>, so there is 177 bytes of headroom in practice and the bound is proven rather than hoped for at the extreme.</p>
 <div class="shot">SCREENSHOT — kyb-screen live output with digest</div>
 <hr>
 <h2>5. The bug this version exists to fix</h2>
@@ -157,7 +157,8 @@ console.log(createHash("sha256")
   .update(JSON.stringify({ ...cert, digest: "" }))
   .digest("hex") === cert.digest ? "MATCH" : "MISMATCH");
 ' '&lt;certificate JSON&gt;'</code></pre>
-<p>Tested against the live deployment: <strong>MATCH</strong>.</p>
+<p>Tested against the live deployment: <strong>MATCH</strong>, on a certificate of 331 bytes against the 508-byte ceiling.</p>
+<div class="shot">SCREENSHOT — digest recomputed off-chain — claimed and recomputed sha256 identical, MATCH</div>
 <p><strong>Risk scoring is a pure function</strong> — same inputs, same score, on any node, no clock, no randomness, no I/O:</p>
 <table>
 <thead><tr><th>Signal</th><th>Weight</th></tr></thead>
@@ -240,7 +241,7 @@ console.log(createHash("sha256")
 </ul>
 <div class="shot">SCREENSHOT — npm run verify-bugs — all eight PASS</div>
 <div class="shot">SCREENSHOT — B1 — access denied at 512 bytes beside the correct key-size error</div>
-<div class="shot">SCREENSHOT — B7 — script_version 9.9.9 returning a successful 0.2.0 response</div>
+<div class="shot">SCREENSHOT — B7 — script_version 9.9.9 running 0.2.0, beside the same call's function_name and script_name both being properly rejected</div>
 <hr>
 <h2>9. Beyond this contract</h2>
 <h3>9.1 What I would build next</h3>
