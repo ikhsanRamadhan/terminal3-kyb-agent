@@ -317,11 +317,12 @@ Ship `.map` files, or publish an unminified build alongside the minified one.
 
 ## Documentation observations (not bugs)
 
-- **Token costs are undocumented.** Measured on this tenant:
+- **Token costs are undocumented.** Measured on live testnet:
   `contracts.register` 1380–1410, `maps.create` 150 (40 when it no-ops on an
   existing map), `map-entry-set` 70–90, `updateAgentAuth` 100–130,
-  `verify-vat` (one outbound GET) 20, `kyb-screen` (two GETs + KV write +
-  claims digest) 170, `getActivityLog` 0. Rejected writes charge 0; a
+  `verify-vat` (one outbound GET) 20, `kyb-screen` (GETs + KV write +
+  claims digest) 170 at v0.1.x / 190 at v0.2.0, `getActivityLog` 0.
+  Rejected writes charge 0; a
   contract that starts and then errors is still charged, which the
   [Tokens](https://docs.terminal3.io/t3n/how-t3n-works/tokens) page does
   document under charge-on-attempt. A rough table on the reference page
