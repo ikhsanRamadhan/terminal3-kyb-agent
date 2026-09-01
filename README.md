@@ -394,7 +394,7 @@ Captured from `npm run state` and `npm run health` after deploying 0.2.0:
 - Certificate digest `22329c97…573a` recomputed off-chain: **match**
 
 Earlier ids under a previous tenant (`did:t3n:bdf0434d…21694`, contract ids 812
-and 813) are where `BUGS.md` B2 and B2 were originally reproduced. They are
+and 813) are where `BUGS.md` B1–B6 were originally reproduced. They are
 history, not the current deployment; `BUGS.md` says which tenant each finding
 came from.
 
