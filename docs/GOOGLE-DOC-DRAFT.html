@@ -105,7 +105,7 @@ npm run test-kyb                               # → 4/4</code></pre>
 <tbody>
 <tr><td><code>verify-vat</code></td><td>VIES VAT validation, three-state: VALID / INVALID / UNKNOWN</td><td>20.04 tokens</td></tr>
 <tr><td><code>verify-lei</code></td><td>GLEIF LEI lookup, registration + entity status</td><td>20.10 tokens</td></tr>
-<tr><td><code>kyb-screen</code></td><td>Both, plus scoring, KV certificate and claims digest</td><td>190.17 tokens</td></tr>
+<tr><td><code>kyb-screen</code></td><td>Both, plus scoring, KV certificate and claims digest</td><td>~170 tokens</td></tr>
 </tbody></table>
 <div class="shot">SCREENSHOT — verify-vat live output — status VALID for Google Ireland</div>
 <hr>
@@ -216,7 +216,7 @@ console.log(createHash("sha256")
   PASS B8   readers/writers accept a contract id with no contract behind it, and charge fo
 
   9 still reproduce, 0 no longer true, 0 not run
-  spent: 360.59 tokens</code></pre>
+  spent: 350.59 tokens</code></pre>
 <p>The suite is a regression test on the report, not a one-off script. It has already earned its keep twice: it caught B6 overstating a bundle size by 60% (claimed "~2 MB", measured 1.25 MB, and the file was <code>index.js</code> not <code>index.esm.js</code>), and it is why the ninth finding was withdrawn.</p>
 <h3>The finding behind the findings</h3>
 <p>Three subsystems share one failure pattern, and it is worth more than any single bug on the list: <strong>where this platform validates an input it produces an excellent error, and where it does not, the failure surfaces from an unrelated subsystem and blames the developer's permissions.</strong></p>
@@ -233,7 +233,7 @@ console.log(createHash("sha256")
 <p>Each pair is the same call. A developer cannot tell from the error whether they have hit a real permission problem or an unvalidated input — which is exactly what cost about an hour of ACL debugging on B1 for what was a payload-size limit. The fix is not eight fixes; it is one principle applied in three more places, and the platform already demonstrates it in the key-length path.</p>
 <h3>Documentation observations (not bugs)</h3>
 <ul>
-<li><strong>Token costs are undocumented.</strong> Measured on this tenant: <code>contracts.register</code> 1380.18, <code>maps.create</code> 40.07 when it no-ops on an existing map (~150 fresh), <code>map-entry-set</code> 70–90, <code>updateAgentAuth</code> 130.31, <code>verify-vat</code> 20.04, <code>verify-lei</code> 20.10, <code>kyb-screen</code> 190.17, <code>getActivityLog</code> / <code>getBalance</code> / <code>contracts.list</code> 0. Rejected writes charge 0. A rough table on the reference page would let developers size a token grant before writing any code.</li>
+<li><strong>Token costs are undocumented.</strong> Measured on this tenant: <code>contracts.register</code> 1380.18, <code>maps.create</code> 40.07 when it no-ops on an existing map (~150 fresh), <code>map-entry-set</code> 70–90, <code>updateAgentAuth</code> 130.31, <code>verify-vat</code> 20.04, <code>verify-lei</code> 20.10, <code>kyb-screen</code> ~170, <code>getActivityLog</code> / <code>getBalance</code> / <code>contracts.list</code> 0. Rejected writes charge 0. A rough table on the reference page would let developers size a token grant before writing any code.</li>
 <li><strong>An undocumented 256-byte KV key limit</strong> — discovered only because its error message is good (see B1).</li>
 <li>The <a href="https://docs.terminal3.io/developers/adk/tips/outbound-http-auth-by-user">outbound-http-auth-by-user</a> page is the single most useful page in the ADK docs — "the code is fine, but no grant authorizes the host" is exactly the failure developers hit. Worth linking from the write-contract page's <code>http::call</code> section, not only from invoke.</li>
 <li><code>wasm-tools component wit</code> shows 13 <code>wasi:io</code> / <code>wasi:cli</code> imports that <code>wit/world.wit</code> never declares, <code>wasi:cli/environment</code> among them. The host loads it fine, so they are evidently injected by the <code>wasm32-wasip2</code> target and ignored at load. The capability model page states imports <em>are</em> the capability set, so this deserves one sentence saying WASI-target imports are exempt. The previous bounty's report raised this for the reference contract; it reproduces on an independently written one.</li>
@@ -271,13 +271,13 @@ Test 2: verify-lei (Siemens Energy, 5299004MG7BJU2QS6Q75)
   registration_status: ISSUED, entity_status: ACTIVE ✓
 
 Test 3: kyb-screen (Albert Heijn, NL/002230884B01)
-  vat_status: UNKNOWN (VIES throttled — correctly reported, not scored)
-  risk_level: UNKNOWN, inconclusive: ["vat:MS_MAX_CONCURRENT_REQ"]
-  digest: 22329c97…573a — recomputed off-chain: MATCH ✓
+  vat_status: VALID, vat_name: ALBERT HEIJN B.V.
+  risk_score: 0, risk_level: LOW, inconclusive: []
+  digest: ccb930eb…8975 — 331 bytes, within the 508-byte ceiling ✓
 
 Test 4: verify-vat (invalid number, DE/999999999)
   status: INVALID ✓</code></pre>
-<p>Test 3 is the one worth looking at: it caught a live upstream throttle and reported it as <em>unknown</em> rather than as a fake VAT number. That is the entire point of v0.2.0, and it happened on its own during the deployment.</p>
+<p>Test 3 on this run hit a responsive VIES and returned a clean pass. The deployment's own test run (§5) hit a throttle and correctly reported <code>UNKNOWN</code> with <code>inconclusive: ["vat:MS_MAX_CONCURRENT_REQ"]</code> instead of a verdict — both paths are the contract working as designed. The health check (SHOT 4) also caught a live throttle during this capture session and reported it as healthy-with-noise, not as an outage.</p>
 <p>Token costs measured during this deployment:</p>
 <table>
 <thead><tr><th>Operation</th><th>Tokens</th></tr></thead>
@@ -287,11 +287,11 @@ Test 4: verify-vat (invalid number, DE/999999999)
 <tr><td><code>updateAgentAuth</code> (egress grant)</td><td>130.31</td></tr>
 <tr><td><code>verify-vat</code></td><td>20.04</td></tr>
 <tr><td><code>verify-lei</code></td><td>20.10</td></tr>
-<tr><td><code>kyb-screen</code></td><td>190.17</td></tr>
+<tr><td><code>kyb-screen</code></td><td>170.16</td></tr>
 <tr><td><strong>Full deployment</strong></td><td><strong>1550.56</strong></td></tr>
-<tr><td>Bug re-verification suite</td><td>360.59</td></tr>
+<tr><td>Bug re-verification suite</td><td>350.59</td></tr>
 </tbody></table>
-<p>Steady state is ~20 tokens per single lookup and ~190 per full screening. The expensive events are deployments, not queries — an hourly health cron is about 480 tokens/day.</p>
+<p>Steady state is ~20 tokens per single lookup and ~170 per full screening. The expensive events are deployments, not queries — an hourly health cron is about 480 tokens/day.</p>
 <div class="shot">SCREENSHOT — full npm run test-kyb output — 4/4</div>
 <hr>
 <h2>12. Repo contents</h2>

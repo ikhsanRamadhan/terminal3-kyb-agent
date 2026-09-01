@@ -182,7 +182,7 @@ Three exported functions:
 |---|---|---|
 | `verify-vat` | VIES VAT validation, three-state: VALID / INVALID / UNKNOWN | 20.04 tokens |
 | `verify-lei` | GLEIF LEI lookup, registration + entity status | 20.10 tokens |
-| `kyb-screen` | Both, plus scoring, KV certificate and claims digest | 190.17 tokens |
+| `kyb-screen` | Both, plus scoring, KV certificate and claims digest | ~170 tokens |
 
 [SCREENSHOT: verify-vat live output — status VALID for Google Ireland]
 
@@ -397,7 +397,7 @@ Verbatim from `npm run verify-bugs -- --paid`:
   PASS B8   readers/writers accept a contract id with no contract behind it, and charge fo
 
   9 still reproduce, 0 no longer true, 0 not run
-  spent: 360.59 tokens
+  spent: 350.59 tokens
 ```
 
 The suite is a regression test on the report, not a one-off script. It has
@@ -432,7 +432,7 @@ and the platform already demonstrates it in the key-length path.
 - **Token costs are undocumented.** Measured on this tenant:
   `contracts.register` 1380.18, `maps.create` 40.07 when it no-ops on an
   existing map (~150 fresh), `map-entry-set` 70–90, `updateAgentAuth` 130.31,
-  `verify-vat` 20.04, `verify-lei` 20.10, `kyb-screen` 190.17,
+  `verify-vat` 20.04, `verify-lei` 20.10, `kyb-screen` ~170,
   `getActivityLog` / `getBalance` / `contracts.list` 0. Rejected writes charge 0.
   A rough table on the reference page would let developers size a token grant
   before writing any code.
@@ -550,17 +550,20 @@ Test 2: verify-lei (Siemens Energy, 5299004MG7BJU2QS6Q75)
   registration_status: ISSUED, entity_status: ACTIVE ✓
 
 Test 3: kyb-screen (Albert Heijn, NL/002230884B01)
-  vat_status: UNKNOWN (VIES throttled — correctly reported, not scored)
-  risk_level: UNKNOWN, inconclusive: ["vat:MS_MAX_CONCURRENT_REQ"]
-  digest: 22329c97…573a — recomputed off-chain: MATCH ✓
+  vat_status: VALID, vat_name: ALBERT HEIJN B.V.
+  risk_score: 0, risk_level: LOW, inconclusive: []
+  digest: ccb930eb…8975 — 331 bytes, within the 508-byte ceiling ✓
 
 Test 4: verify-vat (invalid number, DE/999999999)
   status: INVALID ✓
 ```
 
-Test 3 is the one worth looking at: it caught a live upstream throttle and
-reported it as *unknown* rather than as a fake VAT number. That is the entire
-point of v0.2.0, and it happened on its own during the deployment.
+Test 3 on this run hit a responsive VIES and returned a clean pass. The
+deployment's own test run (§5) hit a throttle and correctly reported
+`UNKNOWN` with `inconclusive: ["vat:MS_MAX_CONCURRENT_REQ"]` instead of a
+verdict — both paths are the contract working as designed. The health check
+(SHOT 4) also caught a live throttle during this capture session and reported
+it as healthy-with-noise, not as an outage.
 
 Token costs measured during this deployment:
 
@@ -571,11 +574,11 @@ Token costs measured during this deployment:
 | `updateAgentAuth` (egress grant) | 130.31 |
 | `verify-vat` | 20.04 |
 | `verify-lei` | 20.10 |
-| `kyb-screen` | 190.17 |
+| `kyb-screen` | 170.16 |
 | **Full deployment** | **1550.56** |
-| Bug re-verification suite | 360.59 |
+| Bug re-verification suite | 350.59 |
 
-Steady state is ~20 tokens per single lookup and ~190 per full screening. The
+Steady state is ~20 tokens per single lookup and ~170 per full screening. The
 expensive events are deployments, not queries — an hourly health cron is about
 480 tokens/day.
 
