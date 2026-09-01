@@ -1,11 +1,40 @@
-# T3N KYB Agent — Confidential Company Verification Inside a TEE
+# Terminal 3 ADK Bounty — Confidential KYB Verification Agent
 
-**Submitted by:** Ikhsandadan
-**Date:** September 2026
+**Author:** Ikhsan Ramadhan
+**Date:** 1 September 2026
+**Repo:** https://github.com/ikhsanRamadhan/terminal3-kyb-agent
 **Tenant DID:** `did:t3n:04306a8025385e404902f1c7e988abd849265eec`
 **Contract:** `z:04306a8025385e404902f1c7e988abd849265eec:kyb` — id **835**, v0.2.0
 
 [SCREENSHOT: npm run state output showing contract 835 v0.2.0]
+
+---
+
+## 0. Summary
+
+Built, deployed and verified an enterprise agent that answers the question a
+compliance team asks constantly — *is this company real, and is its identity
+still in good standing?* — inside a TEE, so the counterparty identifiers being
+checked never pass through the calling application.
+
+- Quickstart, dev environment, walkthrough 1–5 — complete
+- Enterprise agent live on testnet at v0.2.0, `npm run test-kyb` 4/4 passing
+- 7 issues filed with measured repros (4 major, 3 minor)
+- `cargo test` 7/7 offline; certificate digest verified off-chain
+- Health check passing; redeploy script + handover runbook included
+- **I intend to keep running it** (see §7)
+
+**Headline platform finding:** a KV value-size ceiling of 508 bytes is reported
+as `access denied: StorageRouterOnBehalfOf(...) cannot write map`. A permission
+decision cannot depend on payload length, so the message sends developers to
+their ACL — which is correct and unchanged — instead of to their payload. This
+killed the original design of this agent and cost about an hour before a size
+bisection revealed the truth. Details in §6, B1.
+
+**Headline engineering finding:** EU VIES overloads `isValid: false` to mean
+both "not registered" and "the member state throttled you". v0.2.0 exists to
+stop that becoming a false accusation against a real company, and the bug fired
+live during this deployment's own test run. Details in §3.
 
 ---
 
@@ -224,7 +253,7 @@ Token costs measured during this deployment:
 
 ## 10. Repository
 
-Public GitHub: [TO BE FILLED — repo URL]
+Public GitHub: https://github.com/ikhsanRamadhan/terminal3-kyb-agent
 
 The repo is self-contained. Everything needed to understand, run, or take
 over the agent is there: README, BUGS.md with repros, HANDOVER.md runbook,
@@ -233,11 +262,9 @@ operator scripts, and the contract source.
 ## Pre-submit checklist
 
 - [ ] Screenshots captured and inserted above
-- [ ] GitHub repo is public
-- [ ] All [TO BE FILLED] placeholders resolved
 - [ ] Google Doc is set to "anyone with link can view"
-- [ ] X post drafted tagging @terminal3io
-- [ ] Final proofread of this document
-
-</parameter=name>Write>
-<parameter name="file_path">c:\Project\Terminal3\New Bounty\docs\GOOGLE-DOC-DRAFT.md
+- [ ] Doc links to repo; README links back to the published doc URL
+- [ ] B1 and B3 reported in the developer Telegram — both are the kind of
+      thing worth telling them before judging
+- [ ] Shared on X tagging @terminal3io
+- [ ] Final proofread
