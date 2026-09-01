@@ -179,7 +179,7 @@ Background and repro: `BUGS.md` B2 and B3.
 | VIES returns `valid: true` with `name: "---"` | Normal: some member states (DE) do not disclose the name | Nothing to fix |
 | `NotFound` from `verify-lei` | LEI genuinely absent from GLEIF | Nothing to fix |
 | `access denied … StorageRouterOnBehalfOf` on a write you expect to work | KV value exceeded ~508 bytes | Shrink the value; `BUGS.md` B1 |
-| ~2 MB of minified JS on stderr | Unhandled SDK rejection, no source maps | Filter with `awk 'length($0)<400'`; `BUGS.md` B7 |
+| ~1.25 MB of minified JS on stderr | Unhandled SDK rejection, no source maps | Filter with `awk 'length($0)<400'`; `BUGS.md` B7 |
 | `does not provide an export named 'getScriptVersion'` | SDK ≥4.46 renamed it | Use `getContractVersion`; `BUGS.md` B4 |
 
 ## Upstream dependencies

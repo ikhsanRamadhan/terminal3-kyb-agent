@@ -184,7 +184,7 @@ are in BUGS.md in the repository. Summary:
 | B4 | Major | `getScriptVersion` renamed without deprecation |
 | B5 | Minor | `maps.create` validates `writers` after warning about `readers` |
 | B6 | Minor | `tenant.maps.list()` does not exist |
-| B7 | Minor | Unhandled SDK rejections print 2 MB minified bundle |
+| B7 | Minor | Unhandled SDK rejections print 1.25 MB minified bundle |
 
 Plus documentation observations: undocumented token costs, missing SDK
 changelog, WASI-target imports not explained in capability model.

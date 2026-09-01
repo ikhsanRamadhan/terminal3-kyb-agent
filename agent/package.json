@@ -10,6 +10,7 @@
     "test": "cd ../contract-kyb && cargo test",
     "state": "tsx --env-file=../.env.local state.ts",
     "health": "tsx --env-file=../.env.local health.ts",
+    "verify-bugs": "tsx --env-file=../.env.local verify-bugs.ts",
     "test-kyb": "tsx --env-file=../.env.local test-kyb.ts",
     "register-kyb": "tsx --env-file=../.env.local register-kyb.ts",
     "fix-acl": "tsx --env-file=../.env.local fix-acl.ts",

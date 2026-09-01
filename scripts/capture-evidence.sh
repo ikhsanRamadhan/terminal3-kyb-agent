@@ -13,9 +13,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$PATH:$HOME/.cargo/bin"
 
-# The SDK ships as one ~2 MB minified line with no source map, so an unhandled
-# rejection dumps the whole bundle to stderr (BUGS.md B7). Filter it, or the
-# screenshot is 2 MB of obfuscated JavaScript instead of the error.
+# The SDK ships as one 1.25 MB minified line with no source map, so an
+# unhandled rejection dumps the whole bundle to stderr (BUGS.md B7). Filter
+# it, or the screenshot is a megabyte of obfuscated JavaScript instead of the
+# error.
 filter() { awk 'length($0)<600'; }
 
 banner() {

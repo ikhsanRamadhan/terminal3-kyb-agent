@@ -294,18 +294,19 @@ an array, so `.find(...)` throws.
 | Field | Value |
 |---|---|
 | Severity | Minor — DX |
-| Where | `@terminal3/t3n-sdk/dist/index.esm.js` |
+| Where | `@terminal3/t3n-sdk/dist/index.js` |
 | SDK | 4.46.0 |
 
-The SDK ships as one ~2 MB minified line with no source map. When a promise
-rejects out of a script, Node's error report includes the offending source
-line — which is the whole bundle. A single failed `entrySet` produced ~2 MB
-of obfuscated JavaScript on stderr, burying the actual message. Every probe
+The SDK ships as a single 1.25 MB minified line (`index.js`, 1,252,391
+characters on one line) with no source map. When a promise rejects out of a
+script, Node's error report includes the offending source line — which is the
+whole bundle. A single failed `entrySet` produced over a megabyte of
+obfuscated JavaScript on stderr, burying the actual message. Every probe
 script in this repo pipes stderr through `awk 'length($0)<400'` purely to
 work around this.
 
 Stack frames are likewise character offsets into that line
-(`index.esm.js:2:1170028`), so a failure inside the SDK cannot be traced to
+(`index.js:2:1170028`), so a failure inside the SDK cannot be traced to
 a function. This is what made B1 hard to diagnose: the only signal available
 was an error string, and that string was wrong.
 
