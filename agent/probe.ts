@@ -18,6 +18,10 @@ try {
 
 console.log("\n--- maps ---");
 try {
+  // @ts-expect-error B6 (BUGS.md): TenantMapsNamespace has no list() — the
+  // whole point of this probe. If the SDK ever adds it, this directive
+  // becomes an unused-suppression error and `tsc --noEmit` fails, i.e. the
+  // build flips to telling us B6 is fixed.
   console.log(await s.tenant.maps.list());
 } catch (e: unknown) {
   console.error("maps.list failed:", (e as Error).message);

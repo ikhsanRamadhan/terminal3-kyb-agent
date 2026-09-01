@@ -264,7 +264,7 @@ or a map's ACL (B6), so anything else is inference:
 | `agent/fix-acl.ts` | Narrows a map ACL to given contract ids — read B2 first |
 | `agent/*probe.ts` | The scripts that produced the `BUGS.md` repros, kept as evidence |
 | `scripts/redeploy.sh` | Bump → test → build → validate → register → prove |
-| `BUGS.md` | Eight findings from this build, with repros and measured costs |
+| `BUGS.md` | Seven findings from this build, with repros and measured costs |
 | `HANDOVER.md` | Runbook, whether I keep running it, how to take it over |
 
 ## Tests you can run without spending anything

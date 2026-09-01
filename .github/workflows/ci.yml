@@ -1,0 +1,70 @@
+name: build
+
+# Everything here is offline and free: no tenant, no API key, no tokens.
+# That is deliberate — the checks that matter most in this contract are the
+# pure decision functions and the KV size bound, and all three are verifiable
+# without touching the network. A deploy that cannot pass this should never
+# reach the point of spending 1550 tokens.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contract-kyb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust + wasm32-wasip2
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32-wasip2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contract-kyb/target
+            ~/.cargo/bin/wasm-tools
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contract-kyb/Cargo.lock') }}
+
+      - name: Unit tests (risk bands, VIES classification, KV size bound)
+        run: cargo test --verbose
+
+      - name: Clippy
+        run: |
+          rustup component add clippy
+          cargo clippy --target wasm32-wasip2 --release -- -D warnings
+
+      - name: Build the WASM component
+        run: cargo build --target wasm32-wasip2 --release
+
+      - name: Validate the component and print its capability set
+        run: |
+          command -v wasm-tools >/dev/null || cargo install wasm-tools --locked
+          WASM=target/wasm32-wasip2/release/z_tenant_kyb.wasm
+          wasm-tools validate "$WASM"
+          echo "valid — $(wc -c < "$WASM") bytes"
+          # The imports ARE the capability set, so print them: a diff here in a
+          # PR means the contract just gained or lost a host capability.
+          wasm-tools component wit "$WASM" | grep -E '^\s*(import|export)'
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Typecheck the operator scripts
+        working-directory: agent
+        run: |
+          npm install
+          npx tsc --noEmit
