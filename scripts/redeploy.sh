@@ -10,7 +10,7 @@
 # The end-to-end run matters: re-registering allocates a NEW contract_id, and if
 # the results map has a contract-scoped ACL the new id cannot write to it. Only
 # kyb-screen writes, so a read-only health check will NOT catch that. See the
-# note this script prints at the end, BUGS.md B3/B6, and HANDOVER.md.
+# note this script prints at the end, BUGS.md B2/B5, and HANDOVER.md.
 set -euo pipefail
 
 VERSION="${1:?usage: ./scripts/redeploy.sh <version>   e.g. 0.2.1}"
@@ -59,8 +59,8 @@ the kyb-results map was created:
   * Permissive map (writers: "all") — the current deployment. Nothing to
     do. Step 5 already proved kyb-screen can write. Prefer NOT to run
     fix-acl: a contract-scoped ACL names contract ids, every redeploy
-    allocates a new one (BUGS.md B3), and there is no API to read an ACL
-    back (B6) — so you gain a recurring manual step and no safety.
+    allocates a new one (BUGS.md B2), and there is no API to read an ACL
+    back (B5) — so you gain a recurring manual step and no safety.
 
   * Contract-scoped map (writers: { only: [...] }) — kyb-screen in step 5
     will have failed with:
@@ -70,7 +70,7 @@ the kyb-results map was created:
         npm run test-kyb     # must be 4/4
 
 Either way: record the new contract_id in HANDOVER.md. There is no API to
-read a tail's current contract_id or a map's current ACL (B3, B6), so that
+read a tail's current contract_id or a map's current ACL (B2, B5), so that
 file is the only record.
 --------------------------------------------------------------------
 REMINDER

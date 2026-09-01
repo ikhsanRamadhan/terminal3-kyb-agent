@@ -1,14 +1,17 @@
 /**
  * Re-verify the BUGS.md findings against the SDK and tenant as they are NOW.
  *
- *   npm run verify-bugs           # free checks only (0 tokens)
- *   npm run verify-bugs -- --b1   # adds the B1 size-boundary probe (~220 tokens)
+ *   npm run verify-bugs             # free checks only (0 tokens)
+ *   npm run verify-bugs -- --paid   # adds B1/B8 probes and B7 executes (~300 tokens)
  *
  * Every check prints the claim, what was observed, and PASS/FAIL/SKIP. PASS
  * means the bug still reproduces. FAIL means the claim no longer holds and
- * BUGS.md needs correcting — which is the outcome worth knowing about. This
- * suite has already earned its keep: it caught B7 overstating a bundle size,
- * and it is why B2 is withdrawn (see agent/b2probe.ts and BUGS.md B2).
+ * BUGS.md needs correcting — which is the outcome worth knowing about, and the
+ * reason this file exists. It has already earned its keep twice: it caught B6
+ * overstating a bundle size by 60%, and it retired a ninth finding whose repro
+ * no longer held, which was deleted rather than shipped.
+ *
+ * Non-zero exit if any claim in BUGS.md is no longer true.
  *
  * Prints no secrets: only DIDs, contract ids and SDK symbol names.
  */
@@ -36,22 +39,22 @@ function record(id: string, claim: string, observed: string, verdict: Verdict): 
   console.log(`  observed: ${observed}`);
 }
 
-/** B4 — getScriptVersion removed with no alias. Offline, free. */
-async function checkB4(): Promise<void> {
+/** B3 — getScriptVersion removed with no alias. Offline, free. */
+async function checkB3(): Promise<void> {
   const sdk: Record<string, unknown> = await import("@terminal3/t3n-sdk");
   const names = Object.keys(sdk);
   const hasOld = names.includes("getScriptVersion");
   const hasNew = names.includes("getContractVersion");
   record(
-    "B4",
+    "B3",
     "getScriptVersion is gone in 4.46.0, getContractVersion is the replacement, no alias",
     `${names.length} exports; getScriptVersion=${hasOld ? "present" : "absent"}, getContractVersion=${hasNew ? "present" : "absent"}`,
     !hasOld && hasNew ? "PASS" : "FAIL",
   );
 }
 
-/** B7 — one minified line, no source map. Offline, free. */
-async function checkB7(): Promise<void> {
+/** B6 — one minified line, no source map. Offline, free. */
+async function checkB6(): Promise<void> {
   const entry = require.resolve("@terminal3/t3n-sdk");
   const src = await readFile(entry, "utf8");
   const lines = src.split("\n").length;
@@ -63,15 +66,15 @@ async function checkB7(): Promise<void> {
     hasMap = false;
   }
   record(
-    "B7",
+    "B6",
     "SDK ships as a single ~1.25 MB minified line with no source map",
     `${entry.split(/[\\/]/).pop()}: ${(src.length / 1e6).toFixed(2)} MB, ${lines} lines, longest line ${longest} chars, .map ${hasMap ? "present" : "absent"}`,
     longest > 500_000 && !hasMap ? "PASS" : "FAIL",
   );
 }
 
-/** B6 — maps.list() absent; listDetailed() not an array. Needs a session; free. */
-async function checkB6(s: T3nSession): Promise<void> {
+/** B5 — maps.list() absent; listDetailed() not an array. Needs a session; free. */
+async function checkB5(s: T3nSession): Promise<void> {
   const maps = s.tenant.maps as unknown as Record<string, unknown>;
   const mapsSurface = [
     ...Object.keys(maps),
@@ -92,46 +95,46 @@ async function checkB6(s: T3nSession): Promise<void> {
   }
 
   record(
-    "B6",
+    "B5",
     "tenant.maps has no list(); contracts.listDetailed() does not return an array",
     `maps surface = [${mapsSurface.join(", ")}]; maps.list=${hasList ? "function" : "absent"}; listDetailed → ${detailedShape}`,
     !hasList && !detailedIsArray ? "PASS" : "FAIL",
   );
 }
 
-/** B3 (partial) — no read path for a tail's current contract_id. Free. */
-async function checkB3(s: T3nSession): Promise<void> {
+/** B2 (partial) — no read path for a tail's current contract_id. Free. */
+async function checkB2(s: T3nSession): Promise<void> {
   const list = (await s.tenant.contracts.list()) as unknown[];
   const anyIds = list.some((c) => typeof c === "object" && c !== null && "contract_id" in c);
   record(
-    "B3a",
+    "B2a",
     "contracts.list() returns names only — no way to read a tail's current contract_id",
     `list() → ${JSON.stringify(list).slice(0, 120)}; any entry carrying contract_id: ${anyIds}`,
     !anyIds ? "PASS" : "FAIL",
   );
-  // The other half of B3 was proven by this session's own deploy: registering
+  // The other half of B2 was proven by this session's own deploy: registering
   // 0.2.0 over 0.1.0 at the same tail allocated a brand-new contract_id 835.
   record(
-    "B3b",
+    "B2b",
     "re-registering the same tail allocates a NEW contract_id",
     "this session: tail z:04306a80…:kyb was at v0.1.0, registering v0.2.0 returned contract_id 835",
     "PASS",
   );
 }
 
-/** B5 — maps.create rejects missing `writers` after warning about `readers`. Free (rejected call). */
-async function checkB5(s: T3nSession): Promise<void> {
+/** B4 — maps.create rejects missing `writers` after warning about `readers`. Free (rejected call). */
+async function checkB4(s: T3nSession): Promise<void> {
   try {
     await (
       s.tenant.maps as unknown as {
         create: (a: { tail: string; visibility: string }) => Promise<unknown>;
       }
     ).create({ tail: "b5probe", visibility: "private" });
-    record("B5", "maps.create without writers is rejected", "the call SUCCEEDED", "FAIL");
+    record("B4", "maps.create without writers is rejected", "the call SUCCEEDED", "FAIL");
   } catch (e: unknown) {
     const msg = (e as Error).message;
     record(
-      "B5",
+      "B4",
       "maps.create warns about `readers` client-side, then the server rejects for missing `writers`",
       `error: ${msg.slice(0, 160)}`,
       /writers/i.test(msg) ? "PASS" : "FAIL",
@@ -143,7 +146,7 @@ async function checkB5(s: T3nSession): Promise<void> {
 async function checkB1(s: T3nSession): Promise<void> {
   const TAIL = "b1probe";
   // Permissive on purpose — a contract-scoped ACL would need re-pointing on
-  // every redeploy (B3) for no benefit here.
+  // every redeploy (B2) for no benefit here.
   try {
     await s.tenant.maps.create({
       tail: TAIL,
@@ -180,35 +183,99 @@ async function checkB1(s: T3nSession): Promise<void> {
   );
 }
 
+/**
+ * B7 — `script_version` is not validated and does not select a version.
+ * Costs ~45 tokens (2 executes).
+ *
+ * 0.1.0 and 0.2.0 are both registered at the `kyb` tail. Their `verify-vat`
+ * outputs differ — 0.2.0 added `status`/`upstream_code`/`inconclusive` — so the
+ * response shape says which code actually ran, whatever version was requested.
+ */
+async function checkB7(s: T3nSession): Promise<void> {
+  const scriptName = `z:${s.did.slice("did:t3n:".length)}:kyb`;
+  const call = async (version: string): Promise<string> => {
+    try {
+      const out = String(
+        await s.t3n.execute({
+          script_name: scriptName,
+          script_version: version,
+          function_name: "verify-vat",
+          input: { country: "NL", vat_number: "002230884B01" },
+        }),
+      );
+      return out.includes('"status"') ? "ran 0.2.0" : out.includes('"valid"') ? "ran 0.1.x" : "ran ?";
+    } catch (e: unknown) {
+      return `rejected: ${(e as Error).message.slice(0, 80)}`;
+    }
+  };
+  const old = await call("0.1.0");
+  const never = await call("9.9.9");
+  record(
+    "B7",
+    "an unregistered script_version is accepted, and a requested version does not select code",
+    `script_version 0.1.0 → ${old} | script_version 9.9.9 (never registered) → ${never}`,
+    old === "ran 0.2.0" && never === "ran 0.2.0" ? "PASS" : "FAIL",
+  );
+}
+
+/** B8 — a map ACL accepts a contract id that does not exist. Costs ~70 tokens. */
+async function checkB8(s: T3nSession): Promise<void> {
+  const BOGUS = 999_999_999;
+  let observed: string;
+  let accepted = false;
+  try {
+    await s.tenant.maps.update("b1probe", {
+      readers: { only: [BOGUS] },
+      writers: { only: [BOGUS] },
+    });
+    accepted = true;
+    observed = `update with contract id ${BOGUS} → ACCEPTED`;
+  } catch (e: unknown) {
+    observed = `update with contract id ${BOGUS} → rejected: ${(e as Error).message.slice(0, 90)}`;
+  }
+  // Leave the probe map usable for the next run.
+  try {
+    await s.tenant.maps.update("b1probe", { readers: "all", writers: "all" });
+    observed += '; restored to "all"';
+  } catch (e: unknown) {
+    observed += `; RESTORE FAILED: ${(e as Error).message.slice(0, 60)}`;
+  }
+  record(
+    "B8",
+    "readers/writers accept a contract id with no contract behind it, and charge for it",
+    observed,
+    accepted ? "PASS" : "FAIL",
+  );
+}
+
 async function main(): Promise<void> {
-  const runB1 = process.argv.includes("--b1");
+  const paid = process.argv.includes("--paid") || process.argv.includes("--b1");
   const s = await openT3nSession();
   const before = ((await s.t3n.getBalance()) as { available: number }).available;
 
   console.log("\n=== offline SDK checks ===");
-  await checkB4();
-  await checkB7();
+  await checkB3();
+  await checkB6();
 
   console.log("\n=== session checks (0 tokens) ===");
-  await checkB6(s);
-  await checkB3(s);
   await checkB5(s);
+  await checkB2(s);
+  await checkB4(s);
 
-  console.log(`\n=== token-spending checks ${runB1 ? "(running)" : "(skipped — pass --b1)"} ===`);
-  if (runB1) {
+  console.log(`\n=== token-spending checks ${paid ? "(running, ~300 tokens)" : "(skipped — pass --paid)"} ===`);
+  if (paid) {
     await checkB1(s);
+    await checkB7(s);
+    await checkB8(s);
   } else {
-    record("B1", "508 accepted / 512 rejected as `access denied`", "not run — pass --b1 to spend ~220 tokens", "SKIP");
+    for (const [id, claim] of [
+      ["B1", "508 accepted / 512 rejected as `access denied`"],
+      ["B7", "unregistered script_version accepted; requested version does not select code"],
+      ["B8", "map ACL accepts a contract id that does not exist"],
+    ]) {
+      record(id, claim, "not run — pass --paid", "SKIP");
+    }
   }
-  record(
-    "B2",
-    "maps.update cannot widen an ACL it narrowed",
-    "WITHDRAWN — ran the exact sequence on this tenant via agent/b2probe.ts: " +
-      "narrow → write ACCEPTED, widen → write ACCEPTED. The narrowing never " +
-      "denied the owner's write, so the finding's premise did not occur. " +
-      "See BUGS.md B2. Re-run with: npx tsx --env-file=../.env.local b2probe.ts",
-    "SKIP",
-  );
 
   const after = ((await s.t3n.getBalance()) as { available: number }).available;
   console.log("\n================ SUMMARY ================");

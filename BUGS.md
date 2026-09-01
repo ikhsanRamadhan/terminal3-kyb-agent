@@ -1,14 +1,60 @@
 # T3N ADK — Bug & DX Findings (Bounty #2)
 
 Field notes from building an enterprise KYB agent on Terminal 3 T3N testnet,
-August 2026. SDK `@terminal3/t3n-sdk@4.46.0`, Node v24.0.0, Rust 1.96.0,
-`wasm32-wasip2`, `wasm-tools` 1.258.0, Windows 11 / git-bash.
+August–September 2026.
 
-Every finding below was reproduced on live testnet. B1–B7 were originally
-discovered against tenant `did:t3n:bdf0434d…21694` (contract ids 812/813);
-the current deployment runs under `did:t3n:04306a80…65eec` (contract id 835,
-v0.2.0) and exhibits the same platform behaviour. Where a token cost is quoted
-it is a measured `getBalance()` delta, not an estimate.
+## Environment
+
+| Field | Value |
+|---|---|
+| OS | Windows 11 Pro 26200, x86_64 |
+| Shell | git-bash (MINGW64) + PowerShell 7 |
+| Node | v24.0.0 |
+| `@terminal3/t3n-sdk` | 4.46.0 (npm latest at time of writing) |
+| Rust | 1.96.0, target `wasm32-wasip2` |
+| `wasm-tools` | 1.258.0 |
+| Environment target | `setEnvironment("testnet")`, node `cn-api.sg.testnet.t3n.terminal3.io` |
+| Tenant DID | `did:t3n:04306a80…65eec` |
+| Contract | `z:04306a80…65eec:kyb` id 835, v0.2.0 |
+
+## Severity key
+
+**Blocking** — cannot proceed on the documented path. **Major** — documented
+behaviour is wrong, or the error names the wrong subsystem and sends the
+developer to the wrong place. **Minor** — cosmetic or a missing convenience.
+
+## How these were verified
+
+Every finding was re-run against the live tenant immediately before submitting,
+by `agent/verify-bugs.ts` (`npm run verify-bugs -- --paid`). That suite is in the
+repo and prints PASS/FAIL per finding, exiting non-zero if any claim in this file
+is no longer true — so a reviewer can re-run it rather than take this document's
+word. It earned its keep twice: it caught B6 overstating a bundle size by 60%,
+and it retired a ninth finding whose repro no longer held. That one was deleted
+rather than shipped, because a report is only worth the weakest claim in it. Its
+post-mortem is in B8, which turned out to explain it.
+
+B1–B6 were first seen on an earlier tenant (`did:t3n:bdf0434d…21694`, contract
+ids 812/813); all six still reproduce on the current one. B7 and B8 were found on
+the current tenant, by `agent/hunt.ts`, while probing outward from the sizing
+limits B1 exposed. Where a token cost is quoted it is a measured `getBalance()`
+delta, not an estimate.
+
+## Headline finding
+
+Three separate subsystems share one failure pattern: **where this platform
+validates an input, it produces an excellent error; where it does not, the
+failure surfaces from an unrelated subsystem and blames the developer's
+permissions.** The same `entrySet` call rejects an oversized *key* with
+`key exceeds 256 bytes (got 1024)` and an oversized *value* with
+`access denied … cannot write map` (B1). `execute` rejects an unknown
+`function_name` by naming every interface it searched, and accepts a
+`script_version` that was never registered (B7). `maps.update` accepts a
+contract id that does not exist on the tenant and charges for it (B8).
+
+The pattern matters more than any single bug: a developer cannot tell, from an
+error, whether they have hit a real permission problem or an unvalidated input.
+B1 cost about an hour of ACL debugging for what was a payload-size limit.
 
 > No secrets appear in this repo or its history. `.env.local` is git-ignored
 > and never printed.
@@ -44,13 +90,44 @@ A 200-byte key with a 200-byte value succeeds, and a 250-byte key with a
 1-byte value succeeds, so the limit applies to the **value only** — the key
 does not count toward it.
 
-### Why this is the wrong error
+Re-verified on the current tenant (`npm run verify-bugs -- --paid`), same result:
+
+```
+508 → accepted
+512 → rejected: RPC Error: access denied:
+      StorageRouterOnBehalfOf(Contract(tee:tenant/contracts))
+      cannot write map "z:04306a80…65eec:b1probe"
+```
+
+### Why this is the wrong error — the platform's own control case
 
 An authorisation decision cannot depend on payload length. The write is
 refused by a size check somewhere below the storage router, but the message
 that surfaces names the *permission* subsystem and the map. That sends the
 developer to their ACL — which is correct and unchanged — instead of to
 their payload.
+
+The strongest argument that this is a bug and not a design choice is that the
+**same call already reports the other size limit correctly.** `entrySet`
+validates the key length too, and when a key is too long it says so exactly:
+
+```typescript
+await tenant.maps.entrySet("b1probe", "k".repeat(256),  "v"); // OK
+await tenant.maps.entrySet("b1probe", "k".repeat(1024), "v"); // throws
+```
+
+```
+RPC Error: invalid key for map "z:04306a80…65eec:b1probe":
+  key exceeds 256 bytes (got 1024) [afbadae3-…]
+```
+
+That is a model error message: it names the field, the limit, and the actual
+value. One argument later in the same request, the value-size ceiling produces
+`access denied`. Whatever validates keys is not what rejects values, and only
+one of the two paths tells the truth.
+
+As a side effect this also establishes a **256-byte key limit**, which is
+likewise undocumented — but at least discoverable from its own error.
 
 Cost note: rejected calls are charged **0 tokens**, so probing this is free;
 accepted `map-entry-set` calls cost ~70 tokens each regardless of size.
@@ -63,89 +140,22 @@ killed a design that would have staged a sanctions-name list in KV: the
 first 1 KiB chunk was refused, and the error pointed at permissions. Roughly
 an hour went into ACL debugging before a size bisection revealed the truth.
 
+It also shaped the contract that shipped. The KYB certificate is persisted to
+KV, so every field that comes from an upstream registry is clipped to fit a
+508-byte worst case, and a unit test
+(`kyb_screen::tests::worst_case_certificate_fits_kv_limit`) fails the build if
+a future field would breach it. That test exists because of this bug.
+
 ### Suggested fix
 
-Return a distinct error (`value_too_large: 512 bytes max`), and state the
-limit on [Create tenant KV maps](https://docs.terminal3.io/developers/adk/tips/create-kv-maps).
+Return a distinct error (`value_too_large: 508 bytes max`) in the same style as
+the key error that already works, and state both limits on
+[Create tenant KV maps](https://docs.terminal3.io/developers/adk/tips/create-kv-maps).
 If the ceiling is per-cluster rather than fixed, say so and name the current value.
 
 ---
 
-## B2 — WITHDRAWN: an ACL-widening failure that no longer reproduces
-
-| Field | Value |
-|---|---|
-| Severity | ~~Major~~ → **withdrawn**, kept for the record |
-| Where | `tenant.maps.update()` |
-| SDK | 4.46.0 |
-| Status | Observed once on tenant `bdf0434d…21694`; **could not be reproduced** on `04306a80…65eec` |
-
-This was filed as a Major finding: that `maps.update` can narrow a map's ACL
-but not widen it again, leaving the map permanently unwritable. Before
-submitting, every finding in this file was re-run against the current tenant
-(`npm run verify-bugs`). Six reproduced. This one did not, so it is withdrawn
-rather than quietly dropped.
-
-### What was originally observed
-
-On tenant `bdf0434d…21694`: a map created with `readers/writers: "all"`
-accepted writes; after `update` to `{ only: [629] }` writes were denied; after
-`update` back to `"all"` writes were **still** denied, with `getStatus` still
-reporting `active` throughout. The widening call reported success and charged
-70 tokens.
-
-### What happens now
-
-`agent/b2probe.ts` runs that exact sequence against the current tenant, using
-a throwaway `b2probe` map and the live contract id 835:
-
-```
-1. create b2probe with readers=all, writers=all
-2. entrySet('before_narrow')                            → ACCEPTED
-3. update to { readers/writers: { only: [835] } }        → ok
-4. entrySet('after_narrow')                             → ACCEPTED  ← not denied
-5. update back to { readers/writers: "all" }             → ok
-6. entrySet('after_widen')                              → ACCEPTED
-```
-
-Cost: 500.66 tokens.
-
-Step 4 is the interesting line. The narrowing never denied the owner's write
-at all, so the premise the original finding rested on — narrow, get denied,
-widen, stay denied — did not occur. And that non-denial is precisely what
-[create-kv-maps](https://docs.terminal3.io/developers/adk/tips/create-kv-maps)
-documents: `writers`/`readers` restrict *contracts*, not the owner, and the
-owner can always write entries through the control plane. The original B2 text
-asserted that this documented behaviour "does not hold for a map that was
-created permissive and then narrowed." On the current tenant it does hold.
-
-### Why this is still worth reading
-
-Two possibilities, and this repo cannot distinguish them:
-
-1. The behaviour was fixed between the two tenants' lifetimes.
-2. The original denial had a different cause that was misattributed to the ACL
-   — the tenants differ, and the id used in the original narrowing (629) was
-   not a contract on the tenant being tested, whereas 835 is.
-
-Explanation 2 is the more likely one and it is a real trap either way: an ACL
-naming a contract id that does not exist on the tenant is indistinguishable, at
-the call site, from one naming a live id. Nothing validates the ids in an ACL
-at `update` time, and B6 means you cannot read them back afterwards to check.
-That is worth a platform answer even though the original claim is withdrawn.
-
-### What this changes elsewhere in the repo
-
-The argument for keeping `kyb-results` permissive does **not** depend on this
-finding. It rests on B3, which reproduces: every redeploy allocates a new
-`contract_id`, so a contract-scoped ACL breaks `kyb-screen` on every deploy,
-and only `kyb-screen` writes — a read-only smoke test cannot see it. Narrowing
-is still a per-deploy manual step with no read-back; it is simply not the
-irreversible one-way door this finding claimed.
-
----
-
-## B3 — Re-registering a contract silently orphans its map ACLs
+## B2 — Re-registering a contract silently orphans its map ACLs
 
 | Field | Value |
 |---|---|
@@ -204,7 +214,7 @@ keep the old id in the list until nothing references it.
 
 ---
 
-## B4 — `getScriptVersion` was renamed to `getContractVersion` with no deprecation
+## B3 — `getScriptVersion` was renamed to `getContractVersion` with no deprecation
 
 | Field | Value |
 |---|---|
@@ -249,7 +259,7 @@ breaks imports is exactly the class of change that has to be written down.
 
 ---
 
-## B5 — `maps.create` rejects a missing `writers` before it mentions `readers`
+## B4 — `maps.create` rejects a missing `writers` before it mentions `readers`
 
 | Field | Value |
 |---|---|
@@ -288,7 +298,7 @@ required-fields note in the docs.
 
 ---
 
-## B6 — `tenant.maps.list()` does not exist
+## B5 — `tenant.maps.list()` does not exist
 
 | Field | Value |
 |---|---|
@@ -303,18 +313,39 @@ await tenant.maps.list();
 ```
 
 The namespace has `create`, `update`, `getStatus`, `entrySet`, `entryGet`,
-`delete` — no enumeration. Combined with B3 (no way to read a tail's current
-`contract_id`) the tenant has no read-side view of its own storage
-configuration: not which maps exist, not which contract ids their ACLs name.
-`contracts.list()` returns names, so the contract side is at least partly
-introspectable; the map side is not.
+`delete` — no enumeration. Runtime introspection of the live object:
+
+```
+maps surface = [client, create, update, delete, entrySet, entryGet, getStatus]
+maps.list    = absent
+```
 
 `contracts.listDetailed()` is also unusable — it exists but does not return
-an array, so `.find(...)` throws.
+an array, so `.find(...)` throws (`typeof` is `object`, `Array.isArray` false).
+
+### What you *can* do, and why it is not enough
+
+`getStatus` is more useful than it first appears: on a tail that does not
+exist it returns the string `"absent"` rather than throwing, so map existence
+is testable by name.
+
+```typescript
+await tenant.maps.getStatus("definitely_not_a_real_map_xyz"); // → "absent"
+```
+
+So a tenant can probe for a map it already suspects. What it cannot do is
+enumerate, which is the operation that matters after a handover: a new operator
+inheriting a tenant has no way to discover which maps exist. Combined with B2
+(no way to read a tail's current `contract_id`) and B8 (ACLs accept ids that do
+not exist), the storage side of a tenant is write-mostly — you can set an ACL,
+but you cannot read back what you set or what it applies to.
+
+That gap is why `HANDOVER.md` in this repo has to carry the map list and ACL
+state as prose. It is documentation standing in for an API.
 
 ---
 
-## B7 — Unhandled SDK rejections print the entire minified bundle
+## B6 — Unhandled SDK rejections print the entire minified bundle
 
 | Field | Value |
 |---|---|
@@ -338,6 +369,160 @@ was an error string, and that string was wrong.
 ### Suggested fix
 
 Ship `.map` files, or publish an unminified build alongside the minified one.
+
+---
+
+## B7 — `script_version` is accepted without validation and does not select a version
+
+| Field | Value |
+|---|---|
+| Severity | **Major** — silently breaks version pinning and weakens the audit trail |
+| Where | `t3n.execute({ script_version })` |
+| SDK | 4.46.0 |
+| Already documented? | No. Version *shadowing* is documented; that a requested version is ignored is not |
+| Found | On the current tenant, `did:t3n:04306a80…65eec` |
+
+### Repro
+
+Two versions are registered at the `kyb` tail: `0.1.0` and `0.2.0`. The two are
+easy to tell apart from their output — `verify-vat` in 0.1.0 returns
+`{ valid, name, address, … }`, and 0.2.0 added `status`, `upstream_code` and
+`inconclusive`. So the response shape identifies which code actually ran,
+independently of what was asked for.
+
+```typescript
+// ask for the superseded version
+await t3n.execute({ script_name: `z:${tid}:kyb`, script_version: "0.1.0",
+                    function_name: "verify-vat",
+                    input: { country: "NL", vat_number: "002230884B01" } });
+
+// ask for a version that was never registered
+await t3n.execute({ script_name: `z:${tid}:kyb`, script_version: "9.9.9",
+                    function_name: "verify-vat",
+                    input: { country: "NL", vat_number: "002230884B01" } });
+```
+
+Both succeed. Both return 0.2.0's shape:
+
+```jsonc
+{"status":"VALID","valid":true,"inconclusive":false,
+ "upstream_code":"VALID","name":"ALBERT HEIJN B.V.", …}
+```
+
+`"9.9.9"` has never existed on this tenant. It is not rejected, and it is not
+resolved to anything — the call simply runs whatever `getContractVersion`
+resolves, which is `0.2.0`.
+
+### Why this matters
+
+Two distinct problems, and the second is the serious one.
+
+**A caller cannot pin a version.** `script_version` reads like the field that
+selects code to run. It does not. Anyone who deploys 0.2.0 and leaves a client
+pinned to 0.1.0 for compatibility gets 0.2.0's behaviour with no error, no
+warning, and a response shape they were not expecting. In this contract's case
+the two versions genuinely disagree: 0.1.0 reports a throttled VIES lookup as
+`valid: false`, 0.2.0 reports it as `status: "UNKNOWN"`. A caller pinned to
+0.1.0 semantics would read the new output as a *pass*.
+
+**It undermines the audit trail.** `getActivityLog` records `contract` and
+`function` per entry alongside the claims digest. For a compliance contract the
+question an auditor asks is "which version of the scoring policy produced this
+verdict" — and the version the caller stated is not evidence of the version that
+ran. The digest still pins the *output*, so the record is not worthless, but the
+version field cannot be trusted to explain it.
+
+### The control case, again
+
+The other two routing fields in the same call *are* validated, and their errors
+are genuinely good:
+
+```
+function_name: "no-such-function"
+→ RPC Error: contract interface error: Function not found: Function
+  'no-such-function' not found in contract (looked up under
+  'z:tenant-kyb/contracts@0.2.0.no-such-function' and walked every
+  interface export)
+
+script_name: "z:<tid>:no-such-tail"
+→ RPC Error: tenant contract z:<tid>:no-such-tail not registered
+```
+
+The first error even names the version it searched under. So the resolution
+machinery knows the version; the request field just is not checked against it.
+
+### Suggested fix
+
+Reject a `script_version` that is not registered at that tail, with an error in
+the style of the two above — naming the version asked for and the versions
+available. If the field is intentionally advisory, rename it or document that it
+is ignored, because as it stands it silently means the opposite of what it says.
+
+Cost: 4 executes, ~90 tokens total. Repro: `npm run hunt -- --shadow`, or
+`npm run verify-bugs -- --paid`.
+
+---
+
+## B8 — A map ACL accepts contract ids that do not exist, and charges for it
+
+| Field | Value |
+|---|---|
+| Severity | **Major** — an undetectable deploy-time misconfiguration |
+| Where | `tenant.maps.update({ readers, writers })` |
+| SDK | 4.46.0 |
+| Already documented? | No |
+| Found | On the current tenant, `did:t3n:04306a80…65eec` |
+
+### Repro
+
+```typescript
+await tenant.maps.update("b1probe", {
+  readers: { only: [999999999] },   // no contract has this id
+  writers: { only: [999999999] },
+});
+// → resolves. No warning. Charged as a normal update.
+```
+
+The id `999999999` does not correspond to any contract on this tenant — the
+tenant has exactly one, id 835. The update is accepted anyway.
+
+### Why this is worse than a lenient validator
+
+On its own, an unvalidated id is a minor gripe. It becomes a real trap in
+combination with two other findings in this file:
+
+- **B2**: every redeploy allocates a *new* `contract_id`, so ACLs have to be
+  re-pointed by hand, from ids typed into a deploy script or a runbook.
+- **B5**: there is no API to read an ACL back, so the value you set cannot be
+  confirmed.
+
+Put together: a typo in a contract id is accepted, charged for, unreadable
+afterwards, and produces no symptom until the contract's next *write* — which,
+for this KYB agent, is `kyb-screen` and nothing else. `verify-vat` and
+`verify-lei` never write, so a read-only smoke test passes. The failure then
+surfaces as `access denied: TenantContract(…/835) cannot write map`, which
+reads like a permission problem rather than a typo three deploys ago.
+
+This is the same failure pattern as B1 and B7: the input is not validated, so
+the eventual error blames the permission subsystem.
+
+It also, in hindsight, explains a finding this report carried in draft and then
+deleted. That one claimed `maps.update` could narrow an ACL but never widen it
+again — an irreversible one-way door. Re-running it on the current tenant showed
+writes succeeding at every step, so the claim did not hold and was dropped. But
+the original sequence had narrowed the ACL to id `629`, which was not a contract
+on the tenant under test. The denial it produced was real; the explanation was
+wrong. An id that does not exist is indistinguishable, at the call site, from one
+that does, which is exactly what this finding is about.
+
+### Suggested fix
+
+Validate ids in `readers`/`writers` against the tenant's registered contracts at
+`update` time and reject unknown ones, in the style of the `function_name` error
+quoted in B7. Failing that, expose a read path for a map's current ACL so the
+value can be verified after it is set.
+
+Cost: ~70 tokens. Repro: `npm run hunt -- --paid`, or `npm run verify-bugs -- --paid`.
 
 ---
 

@@ -33,8 +33,7 @@ regenerate the table from it.
 
 Historical, on a **different** tenant (`did:t3n:bdf0434d…21694`): contract ids
 812 (v0.1.0) and 813 (v0.1.1), with `kyb-results` scoped to `{ only: [812, 813] }`.
-That tenant is where `BUGS.md` B3 was reproduced (and where the withdrawn B2
-was originally observed). It is not the current
+That tenant is where `BUGS.md` B1–B6 were first observed. It is not the current
 deployment and the current API key does not authenticate as it — mentioned only
 so the ids in `BUGS.md` are traceable.
 
@@ -75,8 +74,8 @@ cd agent && npm run state
 ```
 
 Zero tokens, read-only, and the only authoritative answer to *what is actually
-deployed*. There is no API to read a tail's current `contract_id` (`BUGS.md` B3)
-or a map's ACL (B6), so every other answer is inference from a document that may
+deployed*. There is no API to read a tail's current `contract_id` (`BUGS.md` B2)
+or a map's ACL (B5), so every other answer is inference from a document that may
 be stale — including this one.
 
 ### Monitoring
@@ -139,17 +138,16 @@ created:
 
 **Permissive map (`writers: "all"`) — the current deployment.** Nothing to do.
 Step 5 of the redeploy already wrote a certificate with the new id. **Prefer not
-to run `fix-acl`.** A contract-scoped ACL names contract ids, and B3 — which
+to run `fix-acl`.** A contract-scoped ACL names contract ids, and B2 — which
 does reproduce — means every redeploy allocates a new one, so narrowing converts
 a working deployment into one that needs a manual re-point on every single
-deploy, with no API to read back what the ACL currently says (B6). Owner writes
+deploy, with no API to read back what the ACL currently says (B5). Owner writes
 through the control plane keep working either way; it is the *contract's* write,
 i.e. `kyb-screen`, that breaks.
 
-(An earlier version of this runbook called narrowing an irreversible one-way
-door, citing B2. That finding was withdrawn after it failed to reproduce on this
-tenant — see `BUGS.md` B2. Narrowing is recoverable; it is just a recurring
-manual step you gain nothing from.)
+(Narrowing is recoverable — it is just a recurring manual step you gain nothing
+from, on a value you cannot read back afterwards, using ids the platform does not
+validate. See `BUGS.md` B8.)
 
 **Contract-scoped map (`writers: { only: [...] }`).** Then `kyb-screen` in step 5
 will have failed with a message that reads like a permissions mistake:
@@ -170,12 +168,12 @@ Keep every historical id in the list until you are certain nothing references
 the old versions.
 
 Either way: **record the new `contract_id` in the table at the top of this
-file.** There is no API to read a tail's current `contract_id` (`BUGS.md` B3) or
-a map's current ACL (B6), so this document and `npm run state` are the only
+file.** There is no API to read a tail's current `contract_id` (`BUGS.md` B2) or
+a map's current ACL (B5), so this document and `npm run state` are the only
 record — and `state` cannot see the ACL.
 
-Background and repro: `BUGS.md` B3 (and B2 for why the older, stronger claim
-about narrowing was withdrawn).
+Background and repro: `BUGS.md` B2, and B8 for why the ids you type into an ACL
+are not checked.
 
 ## Failure modes and what they mean
 
@@ -187,8 +185,8 @@ about narrowing was withdrawn).
 | VIES returns `valid: true` with `name: "---"` | Normal: some member states (DE) do not disclose the name | Nothing to fix |
 | `NotFound` from `verify-lei` | LEI genuinely absent from GLEIF | Nothing to fix |
 | `access denied … StorageRouterOnBehalfOf` on a write you expect to work | KV value exceeded ~508 bytes | Shrink the value; `BUGS.md` B1 |
-| ~1.25 MB of minified JS on stderr | Unhandled SDK rejection, no source maps | Filter with `awk 'length($0)<400'`; `BUGS.md` B7 |
-| `does not provide an export named 'getScriptVersion'` | SDK ≥4.46 renamed it | Use `getContractVersion`; `BUGS.md` B4 |
+| ~1.25 MB of minified JS on stderr | Unhandled SDK rejection, no source maps | Filter with `awk 'length($0)<400'`; `BUGS.md` B6 |
+| `does not provide an export named 'getScriptVersion'` | SDK ≥4.46 renamed it | Use `getContractVersion`; `BUGS.md` B3 |
 
 ## Upstream dependencies
 
@@ -196,7 +194,7 @@ about narrowing was withdrawn).
 |---|---|---|
 | EU VIES REST API | Per-member-state availability varies; no SLA | Three-state classification (VALID/INVALID/UNKNOWN) in `verify_vat.rs`; an unanswered source goes into `inconclusive[]` and forces `risk_level: UNKNOWN` — never scored as a negative |
 | GLEIF API v1 | Stable, versioned path, no key | Response parsing tolerates missing optional fields (`Option<…>` throughout) |
-| `@terminal3/t3n-sdk` | Renames land without deprecation (B4) and the changelog carries no SDK history | Pinned `^4.46.0` in `agent/package.json`; pin exactly if a break is disruptive |
+| `@terminal3/t3n-sdk` | Renames land without deprecation (B3) and the changelog carries no SDK history | Pinned `^4.46.0` in `agent/package.json`; pin exactly if a break is disruptive |
 | Host interfaces `@2.1.0` | Vendored under `contract-kyb/wit/deps/` | Copy matching versions from the cluster before bumping |
 
 GLEIF's JSON shape is worth one note for whoever edits `verify_lei.rs`:

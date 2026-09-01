@@ -304,7 +304,7 @@ pub fn screen(input: &[u8], now_secs: u64) -> Result<Vec<u8>, String> {
         );
         if let Err(e) = kv_store::put(&map_name, key.as_bytes(), &result_bytes) {
             // Surfaced, not swallowed: a certificate that was not stored is
-            // not auditable, and the ACL-after-redeploy failure (BUGS.md B3)
+            // not auditable, and the ACL-after-redeploy failure (BUGS.md B2)
             // shows up exactly here.
             return Err(err_json("KvWriteFailed", &format!("{map_name}: {e}")));
         }
