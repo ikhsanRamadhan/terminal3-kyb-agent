@@ -2,7 +2,7 @@
  * Register the KYB contract on T3N testnet, create its result map,
  * and set up egress grants for VIES + GLEIF.
  *
- * Usage: CONTRACT_VERSION=0.1.1 npm run register-kyb
+ * Usage: CONTRACT_VERSION=0.2.0 npm run register-kyb
  * Idempotent: map creation and egress grant are safe to re-run.
  */
 import { readFile } from "node:fs/promises";
