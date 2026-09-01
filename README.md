@@ -261,7 +261,7 @@ or a map's ACL (B5), so anything else is inference:
 | `agent/register-kyb.ts` | Register + map + egress grant (re-runnable) |
 | `agent/test-kyb.ts` | End-to-end suite with per-call token accounting |
 | `agent/health.ts` | Monitoring probe, exit 1 if degraded |
-| `agent/fix-acl.ts` | Narrows a map ACL to given contract ids — read B2 first |
+| `agent/fix-acl.ts` | Narrows a map ACL to given contract ids — read B2 and B8 first |
 | `agent/verify-bugs.ts` | Re-runs all eight `BUGS.md` findings against the live tenant; exits 1 if a claim no longer holds |
 | `agent/hunt.ts` | The exploratory probe suite that turned up B7 and B8 |
 | `agent/*probe.ts` | The scripts that produced the `BUGS.md` repros, kept as evidence |

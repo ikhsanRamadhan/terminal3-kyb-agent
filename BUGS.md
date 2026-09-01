@@ -68,17 +68,25 @@ B1 cost about an hour of ACL debugging for what was a payload-size limit.
 | Severity | **Major** — the error names the wrong subsystem |
 | Where | `tenant.maps.entrySet()` → control-plane `map-entry-set` |
 | SDK | 4.46.0 |
+| `request_id` | `[7dacdf22-…]` (value too large), `[afbadae3-40fc-4bd6-b60c-d84f922ea5fb]` (key too long) |
 | Already documented? | No — no size limit appears anywhere in the docs |
 
-### Repro
+### Steps to reproduce
 
-Same map, same session, same caller, same ACL. Only the value length changes:
+1. Create a map you can write to, or use one you already own.
+2. Write values of increasing length to it, keeping key, map, session, caller and
+   ACL identical. Only the value length changes.
 
 ```typescript
 await tenant.maps.entrySet("secrets", "_a", "x".repeat(256)); // OK
 await tenant.maps.entrySet("secrets", "_b", "x".repeat(508)); // OK
 await tenant.maps.entrySet("secrets", "_c", "x".repeat(512)); // throws
 ```
+
+**Expected:** a size error naming the limit — the way the *key* limit on this
+same call already does (see below).
+
+**Actual:**
 
 ```
 RpcError: RPC Error: access denied: StorageRouterOnBehalfOf(Contract(tee:tenant/contracts))
@@ -379,39 +387,49 @@ Ship `.map` files, or publish an unminified build alongside the minified one.
 | Severity | **Major** — silently breaks version pinning and weakens the audit trail |
 | Where | `t3n.execute({ script_version })` |
 | SDK | 4.46.0 |
+| `request_id` | None — the call succeeds, so nothing errors |
 | Already documented? | No. Version *shadowing* is documented; that a requested version is ignored is not |
 | Found | On the current tenant, `did:t3n:04306a80…65eec` |
 
-### Repro
+### Steps to reproduce
 
-Two versions are registered at the `kyb` tail: `0.1.0` and `0.2.0`. The two are
-easy to tell apart from their output — `verify-vat` in 0.1.0 returns
-`{ valid, name, address, … }`, and 0.2.0 added `status`, `upstream_code` and
-`inconclusive`. So the response shape identifies which code actually ran,
-independently of what was asked for.
+1. Register a contract at a tail, e.g. `kyb` v0.1.0.
+2. Change an observable part of its output, bump the version, register again —
+   here v0.2.0, which added `status` / `upstream_code` / `inconclusive` to
+   `verify-vat`'s response. Both versions are now registered at the same tail.
+3. `execute` a function with `script_version` set to the **superseded** version.
+4. `execute` again with `script_version` set to a string that was **never
+   registered** at all.
+
+Because the two versions' responses differ in shape, the response itself says
+which code ran, independently of what was requested.
 
 ```typescript
-// ask for the superseded version
+// 3. ask for the superseded version
 await t3n.execute({ script_name: `z:${tid}:kyb`, script_version: "0.1.0",
                     function_name: "verify-vat",
                     input: { country: "NL", vat_number: "002230884B01" } });
 
-// ask for a version that was never registered
+// 4. ask for a version that has never existed
 await t3n.execute({ script_name: `z:${tid}:kyb`, script_version: "9.9.9",
                     function_name: "verify-vat",
                     input: { country: "NL", vat_number: "002230884B01" } });
 ```
 
-Both succeed. Both return 0.2.0's shape:
+**Expected:** step 3 runs 0.1.0's code, or is refused if superseded versions are
+not callable. Step 4 is refused, naming the version asked for and the versions
+available — the way an unknown `function_name` already is (see below).
+
+**Actual:** both succeed, and both run **0.2.0**:
 
 ```jsonc
 {"status":"VALID","valid":true,"inconclusive":false,
  "upstream_code":"VALID","name":"ALBERT HEIJN B.V.", …}
 ```
 
-`"9.9.9"` has never existed on this tenant. It is not rejected, and it is not
-resolved to anything — the call simply runs whatever `getContractVersion`
-resolves, which is `0.2.0`.
+`status` and `upstream_code` exist only in 0.2.0. `"9.9.9"` has never existed on
+this tenant. It is not rejected and it is not resolved to anything — the call
+runs whatever `getContractVersion` resolves, which is `0.2.0`.
 
 ### Why this matters
 
@@ -448,8 +466,14 @@ script_name: "z:<tid>:no-such-tail"
 → RPC Error: tenant contract z:<tid>:no-such-tail not registered
 ```
 
-The first error even names the version it searched under. So the resolution
-machinery knows the version; the request field just is not checked against it.
+The first error even names the version it searched under
+(`z:tenant-kyb/contracts@0.2.0.no-such-function`). So the resolution machinery
+knows the version; the request field just is not checked against it.
+
+`request_id`s for the two rejections above: `[743d19a2-…]` and
+`[0856d0be-9123-41b3-8028-0262ce6e2e6f]`.
+
+[SCREENSHOT: hunt --shadow output — 0.1.0 and 9.9.9 both returning a 0.2.0-shaped response]
 
 ### Suggested fix
 
@@ -470,21 +494,31 @@ Cost: 4 executes, ~90 tokens total. Repro: `npm run hunt -- --shadow`, or
 | Severity | **Major** — an undetectable deploy-time misconfiguration |
 | Where | `tenant.maps.update({ readers, writers })` |
 | SDK | 4.46.0 |
+| `request_id` | None — the call succeeds |
 | Already documented? | No |
 | Found | On the current tenant, `did:t3n:04306a80…65eec` |
 
-### Repro
+### Steps to reproduce
+
+1. Confirm how many contracts the tenant actually has:
+   `contracts.list()` → one entry, `z:04306a80…65eec:kyb`, id 835.
+2. Point a map's ACL at a contract id that does not exist.
 
 ```typescript
 await tenant.maps.update("b1probe", {
   readers: { only: [999999999] },   // no contract has this id
   writers: { only: [999999999] },
 });
-// → resolves. No warning. Charged as a normal update.
 ```
 
-The id `999999999` does not correspond to any contract on this tenant — the
-tenant has exactly one, id 835. The update is accepted anyway.
+**Expected:** rejection naming the unknown id, in the style of the
+`function_name` error quoted in B7.
+
+**Actual:** resolves. No warning, no error, charged as a normal update. The ACL
+now names a contract that cannot exist, and B5 means it cannot be read back to
+notice.
+
+[SCREENSHOT: hunt --paid output — ACL update with id 999999999 accepted]
 
 ### Why this is worse than a lenient validator
 
