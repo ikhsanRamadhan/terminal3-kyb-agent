@@ -4,9 +4,11 @@ Field notes from building an enterprise KYB agent on Terminal 3 T3N testnet,
 August 2026. SDK `@terminal3/t3n-sdk@4.46.0`, Node v24.0.0, Rust 1.96.0,
 `wasm32-wasip2`, `wasm-tools` 1.258.0, Windows 11 / git-bash.
 
-Every finding below was reproduced on live testnet against tenant
-`did:t3n:bdf0434d…21694`. Where a token cost is quoted it is a measured
-`getBalance()` delta, not an estimate.
+Every finding below was reproduced on live testnet. B1–B7 were originally
+discovered against tenant `did:t3n:bdf0434d…21694` (contract ids 812/813);
+the current deployment runs under `did:t3n:04306a80…65eec` (contract id 835,
+v0.2.0) and exhibits the same platform behaviour. Where a token cost is quoted
+it is a measured `getBalance()` delta, not an estimate.
 
 > No secrets appear in this repo or its history. `.env.local` is git-ignored
 > and never printed.

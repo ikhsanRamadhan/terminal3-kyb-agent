@@ -6,8 +6,8 @@ and is its identity still in good standing?* — and answers it inside a
 Trusted Execution Environment, so the counterparty identifiers being checked
 never pass through the calling application.
 
-Live on T3N testnet: `z:bdf0434dfcd541ec2af899ad28599f6653421694:kyb`,
-contract id **813**, version **0.1.1**.
+Live on T3N testnet: `z:04306a8025385e404902f1c7e988abd849265eec:kyb`,
+contract id **835**, version **0.2.0**.
 
 ```
 caller → t3n.execute("kyb-screen", { company, vat_country, vat_number, lei? })
@@ -19,7 +19,7 @@ caller → t3n.execute("kyb-screen", { company, vat_country, vat_number, lei? })
    │ kv_store::put("z:<tid>:kyb-results", key, certificate)              │
    │ kv_store::set_claims_digest(hash)   → Merkle leaf of this tx        │
    └─────────────────────────────────────────────────────────────────────┘
-← { company, vat_valid, vat_name, lei_*, risk_score, risk_level, digest, … }
+← { vat_status, vat_name, lei_*, risk_score, risk_level, inconclusive[], digest }
 ```
 
 The caller sends identifiers and receives a verdict. Raw VIES and GLEIF
@@ -45,11 +45,33 @@ Three properties follow from doing it in a contract instead:
    the SHA-256 of the certificate into the transaction's Merkle leaf, so an
    auditor can later confirm that a given verdict was produced by this
    contract at that sequence number, without trusting the operator's database.
+   The recipe is below and it reproduces byte-for-byte.
 3. **There is nothing to leak.** VIES and GLEIF are free and keyless, so this
    agent stores no credential at all. Compare the ADK's reference flight
    contract, which must hold a Duffel key in `z:<tid>:secrets`.
 
-Point 3 is also the maintenance argument — see below.
+Point 3 is also the maintenance argument — see [Maintenance](#maintenance).
+
+## The bug this version exists to prevent
+
+VIES overloads one field. `isValid: false` means "this VAT number is not
+registered" **only** when `userError == "INVALID"`. The same field is also false
+when the member state's registry throttled or dropped the query —
+`MS_MAX_CONCURRENT_REQ`, `MS_UNAVAILABLE`, `TIMEOUT`. Observed live: three
+requests seconds apart returned `VALID`, `MS_MAX_CONCURRENT_REQ`, `VALID` for
+the same number.
+
+Read as a boolean, that turns a busy registry into *"this company's VAT number
+is fake"* — for a compliance tool, the worst direction to be wrong in. So
+`verify-vat` returns a three-state `status`, and `kyb-screen` collects every
+source that failed to answer in `inconclusive[]`, which forces
+`risk_level: "UNKNOWN"`. A caller must treat UNKNOWN as *re-run this*, never as
+a pass and never as a fail.
+
+This is not hypothetical. It fired during the deployment test run of this very
+version — see [`kyb-screen`](#kyb-screen--combined-verdict-persisted-and-digested)
+below, where the live output is a throttled Dutch registry reported honestly
+instead of a false accusation against ALBERT HEIJN B.V.
 
 ## Trust model
 
@@ -61,40 +83,58 @@ Point 3 is also the maintenance argument — see below.
   `{{profile.*}}` PII out of WASM memory on the way out; these are GET requests
   against public registries carrying no personal data, so importing it would
   widen the contract's capability set for nothing.
-- Certificates are written to `z:<tid>:kyb-results`, ACL-restricted to the
-  contract ids that own it.
+- Certificates are written to `z:<tid>:kyb-results`, a private map. Its ACL is
+  deliberately left permissive (`writers: "all"`, which restricts *contracts*,
+  not the owner) rather than scoped to contract ids — see
+  [Why the map ACL is permissive](#why-the-map-acl-is-permissive).
 - Risk scoring is a pure function of the two upstream responses — no I/O, no
   clock, no randomness. Same inputs, same score, on any node.
+- The certificate is bounded: every field that comes from an upstream is clipped
+  so the serialized value provably fits the cluster's 508-byte KV ceiling
+  (`BUGS.md` B1), asserted by a unit test rather than hoped for.
 
 ## API
 
 Three exports on the `contracts` interface. Each takes the standard
-`generic-input` envelope and returns JSON bytes.
+`generic-input` envelope and returns JSON bytes. Every response below is
+**verbatim live testnet output** from `npm run test-kyb` against contract 835.
 
 ### `verify-vat` — EU VIES VAT validation
 
 ```jsonc
 // in
 { "country": "IE", "vat_number": "6388047V" }
-// out (live testnet response)
-{ "valid": true,
+// out
+{ "status": "VALID", "valid": true, "inconclusive": false,
+  "upstream_code": "VALID",
   "name": "GOOGLE IRELAND LIMITED",
   "address": "3RD FLOOR, GORDON HOUSE, BARROW STREET, DUBLIN 4",
-  "request_date": "2026-08-31T12:28:39.593Z",
+  "request_date": "2026-09-01T08:39:52.944Z",
   "country": "IE", "vat_number": "6388047V" }
 ```
 
-An invalid number is a successful call with `valid: false` — not an error.
-Note that VIES member states differ in what they disclose: DE returns
-`valid: true` with `name: "---"`, while IE, NL, SE and LU return the
-registered name. That is upstream behaviour, surfaced as-is.
+`status` is the field to branch on: `VALID` | `INVALID` | `UNKNOWN`. `valid` is
+kept only as a convenience for `status == "VALID"`, and `upstream_code` carries
+the raw VIES `userError` so an operator can see *why* an answer was inconclusive.
+
+A genuinely unregistered number is a successful call, not an error:
+
+```jsonc
+// in  { "country": "DE", "vat_number": "999999999" }
+// out { "status": "INVALID", "valid": false, "inconclusive": false,
+//       "upstream_code": "INVALID", "name": "---", … }
+```
+
+Member states also differ in what they disclose: DE returns `status: "VALID"`
+with `name: "---"`, while IE, NL, SE and LU return the registered name. That is
+upstream behaviour, surfaced as-is.
 
 ### `verify-lei` — GLEIF Legal Entity Identifier lookup
 
 ```jsonc
 // in
 { "lei": "5299004MG7BJU2QS6Q75" }
-// out (live testnet response)
+// out
 { "lei": "5299004MG7BJU2QS6Q75",
   "legal_name": "Siemens Energy AG",
   "registration_status": "ISSUED",     // ISSUED | LAPSED | RETIRED | …
@@ -108,87 +148,189 @@ is whether the company still exists, `registration_status` is whether anyone
 is still maintaining its LEI record. A `LAPSED` LEI on an `ACTIVE` entity is
 a normal, mild red flag — nobody renewed it.
 
+GLEIF keeps these in two places and there is no `data.attributes.status`;
+getting that wrong is silent, because the missing field deserializes to an
+empty string. `HANDOVER.md` records the exact paths for whoever edits this next.
+
 ### `kyb-screen` — combined verdict, persisted and digested
 
 ```jsonc
 // in
 { "company": "ALBERT HEIJN B.V.", "vat_country": "NL",
   "vat_number": "002230884B01", "lei": null }
-// out (live testnet response)
-{ "company": "ALBERT HEIJN B.V.",
-  "vat_valid": true, "vat_name": "ALBERT HEIJN B.V.",
-  "lei_valid": false, "lei_name": "",
+// out
+{ "vat_status": "UNKNOWN", "vat_name": "---",
   "lei_registration_status": "NOT_PROVIDED",
-  "lei_entity_status": "NOT_PROVIDED",
-  "risk_score": 0, "risk_level": "LOW",
-  "timestamp": 1788179320, "contract_id": 813,
-  "digest": "b70ee890e8a0c0c37add38dfb6790150a50c087127b04e69766b0e1ad7dece14" }
+  "lei_entity_status": "NOT_PROVIDED", "lei_name": "",
+  "risk_score": 0, "risk_level": "UNKNOWN",
+  "inconclusive": ["vat:MS_MAX_CONCURRENT_REQ"],
+  "timestamp": 1788251994, "contract_id": 835,
+  "digest": "22329c9722f76af11fdbb188c7e38a540f0395ab2deb0e7d4fc743532616573a" }
 ```
 
+**Read that output carefully — it is the whole argument for this version.** The
+Dutch registry throttled the query. Version 0.1.1 would have returned
+`vat_valid: false` and scored +40, reporting a real supermarket chain as a KYB
+risk because a government API was busy. 0.2.0 reports `vat_status: "UNKNOWN"`,
+names the upstream code, and refuses to issue a verdict at all
+(`risk_level: "UNKNOWN"`, score suppressed). The correct operator response is to
+re-run, and the output says so unambiguously.
+
 Scoring is additive and deliberately boring — `LOW` (0), `MEDIUM` (1–40),
-`HIGH` (>40):
+`HIGH` (>40), and `UNKNOWN` whenever `inconclusive[]` is non-empty:
 
 | Signal | Weight |
 |---|---|
-| VAT number not valid in VIES | +40 |
+| VAT number explicitly `INVALID` in VIES | +40 |
 | A LEI was supplied but could not be resolved | +30 |
 | LEI registration `LAPSED` or `RETIRED` | +20 |
 | Entity status `INACTIVE` | +20 |
 | VIES name and GLEIF legal name disagree (both present) | +10 |
+| **Any source did not answer** | **band forced to `UNKNOWN`** |
 
-Weights live in one `match` in `contract-kyb/src/kyb_screen.rs`. Changing
-policy means changing numbers there, rebuilding, and redeploying — no
-scoring service, no rules engine, no config store.
+The last row is the important one: an unanswered source is never scored as a
+negative finding. Weights live in one `match` and a handful of `if`s in
+`contract-kyb/src/kyb_screen.rs`. Changing policy means changing numbers there,
+rebuilding, and redeploying — no scoring service, no rules engine, no config
+store, because a policy that can change without a redeploy is a policy you
+cannot audit against the Merkle trail.
+
+### Verifying a certificate yourself
+
+The digest is SHA-256 over the certificate with `digest` set to the empty
+string, in declaration order. Anyone holding a returned certificate can
+reproduce it — no access to the tenant required:
+
+```bash
+node -e '
+const {createHash} = require("crypto");
+const cert = JSON.parse(process.argv[1]);
+const unsigned = JSON.stringify({ ...cert, digest: "" });
+console.log(createHash("sha256").update(unsigned).digest("hex") === cert.digest
+  ? "MATCH" : "MISMATCH");
+' '{"vat_status":"UNKNOWN","vat_name":"---","lei_registration_status":"NOT_PROVIDED","lei_entity_status":"NOT_PROVIDED","lei_name":"","risk_score":0,"risk_level":"UNKNOWN","inconclusive":["vat:MS_MAX_CONCURRENT_REQ"],"timestamp":1788251994,"contract_id":835,"digest":"22329c9722f76af11fdbb188c7e38a540f0395ab2deb0e7d4fc743532616573a"}'
+# MATCH
+```
+
+That same hash is what `set-claims-digest` committed to the transaction's Merkle
+leaf, which is what makes the certificate auditable rather than merely stored.
 
 ## Running it
 
 ```bash
-cd agent && npm install
+# offline, free, no network and no tokens — run this first
+cd contract-kyb && cargo test          # 7 unit tests
 
-# one-time: register the contract, create its map, grant egress
-CONTRACT_VERSION=0.1.1 npm run register-kyb
+cd ../agent && npm install
+npm run state                          # what is actually deployed (0 tokens)
 
-npm run test-kyb   # the four calls whose output is quoted above
-npm run health     # single JSON health line, exit 1 if degraded
+# one-time: register the contract, create its map, grant egress (~1550 tokens)
+CONTRACT_VERSION=0.2.0 npm run register-kyb
+
+npm run test-kyb   # the four calls whose output is quoted above (~250 tokens)
+npm run health     # single JSON health line, exit 1 if degraded (~20 tokens)
 ```
 
 `.env.local` at the repo root supplies `T3N_API_KEY` (and `DID`); it is
-git-ignored.
+git-ignored and is the only file you need to create.
+
+`npm run state` is the one to reach for first and the one to trust. It costs
+nothing, and it is the only authoritative answer to *what is deployed right
+now* — there is no API to read a tail's current `contract_id` (`BUGS.md` B3)
+or a map's ACL (B6), so anything else is inference:
+
+```jsonc
+{ "tenant_did": "did:t3n:04306a8025385e404902f1c7e988abd849265eec",
+  "contract_tail": "z:04306a8025385e404902f1c7e988abd849265eec:kyb",
+  "live_script_version": "0.2.0",
+  "results_map_status": "active",
+  "balance_tokens": 15787.44 }
+```
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `contract-kyb/wit/world.wit` | Exported interface + the four host imports |
+| `contract-kyb/wit/world.wit` | Exported interface, host imports, output shapes |
 | `contract-kyb/src/lib.rs` | `wit_bindgen` entry point, `Guest` impl |
-| `contract-kyb/src/verify_vat.rs` | VIES call + response shaping |
+| `contract-kyb/src/verify_vat.rs` | VIES call, `classify()`, tri-state result |
 | `contract-kyb/src/verify_lei.rs` | GLEIF call + response shaping |
-| `contract-kyb/src/kyb_screen.rs` | Orchestration, scoring, KV write, digest |
+| `contract-kyb/src/kyb_screen.rs` | Orchestration, scoring, size bound, KV write, digest |
 | `agent/lib/session.ts` | Shared handshake → authenticate → `TenantClient` |
+| `agent/state.ts` | Read-only deployment probe, 0 tokens |
 | `agent/register-kyb.ts` | Register + map + egress grant (re-runnable) |
 | `agent/test-kyb.ts` | End-to-end suite with per-call token accounting |
-| `agent/health.ts` | Monitoring probe |
-| `agent/fix-acl.ts` | Re-points map ACLs after a redeploy (see BUGS.md B3) |
-| `scripts/redeploy.sh` | Version bump → build → validate → register → health |
-| `BUGS.md` | Seven findings from this build, with repros |
+| `agent/health.ts` | Monitoring probe, exit 1 if degraded |
+| `agent/fix-acl.ts` | Narrows a map ACL to given contract ids — read B2 first |
+| `agent/*probe.ts` | The scripts that produced the `BUGS.md` repros, kept as evidence |
+| `scripts/redeploy.sh` | Bump → test → build → validate → register → prove |
+| `BUGS.md` | Eight findings from this build, with repros and measured costs |
 | `HANDOVER.md` | Runbook, whether I keep running it, how to take it over |
+
+## Tests you can run without spending anything
+
+`cargo test` covers the two pure decision functions and the size bound. No
+network, no tokens, no tenant — which matters, because these are exactly the
+places where a mistake is silent in production.
+
+```
+running 7 tests
+test kyb_screen::tests::bands_follow_the_score ... ok
+test kyb_screen::tests::clip_is_byte_bounded_and_never_splits_a_codepoint ... ok
+test kyb_screen::tests::inconclusive_overrides_every_band ... ok
+test kyb_screen::tests::worst_case_certificate_fits_kv_limit ... ok
+test verify_vat::tests::only_explicit_invalid_is_a_negative ... ok
+test verify_vat::tests::throttling_and_outages_are_unknown ... ok
+test verify_vat::tests::valid_is_valid_regardless_of_code ... ok
+```
+
+`throttling_and_outages_are_unknown` is the regression guard for the VIES
+overload described above. `worst_case_certificate_fits_kv_limit` builds a
+certificate with every field at its *type* maximum and asserts it serializes
+under 508 bytes, so adding a field cannot quietly reintroduce `BUGS.md` B1.
 
 ## Cost, measured
 
-Every number below is a `getBalance()` delta on live testnet, not an estimate.
+Every number is a `getBalance()` delta on live testnet during the v0.2.0
+deployment, not an estimate.
 
 | Operation | Tokens |
 |---|---|
-| `contracts.register` (222 KB WASM) | 1380 |
-| `maps.create` | 150 (40 when the map already exists) |
-| `updateAgentAuth` | 130 |
-| `verify-vat` / `verify-lei` (one outbound GET) | 20 |
-| `kyb-screen` (two GETs + KV write + claims digest) | 170 |
-| `getActivityLog` | 0 |
+| `contracts.register` (229 206-byte WASM) | 1380.18 |
+| `maps.create` | 40.07 when the map already exists (150 on first create) |
+| `updateAgentAuth` | 130.31 |
+| `verify-vat` (one outbound GET) | 20.04 |
+| `verify-lei` (one outbound GET) | 20.10 |
+| `kyb-screen` (GET + KV write + claims digest) | 190.17 |
+| `getBalance`, `contracts.list`, `getContractVersion`, `getActivityLog` | 0 |
 | Any rejected write | 0 |
 
-So steady-state operation is ~20 tokens per single check and ~170 per full
-screening. The expensive events are deployments, not queries.
+Full deployment: **1550.56 tokens** (17 628.43 → 16 077.86). A verified cycle
+including the four end-to-end calls: **~1801 tokens**.
+
+Steady-state operation is ~20 tokens per single check and ~190 per full
+screening. The expensive events are deployments, not queries — an hourly health
+cron is ~480 tokens/day.
+
+## Why the map ACL is permissive
+
+`kyb-results` is created with `writers: "all"`, which the ADK docs define as
+restricting *contracts*, not the owner. It would be tempting to scope it to the
+owning contract id instead. Two measured findings say don't:
+
+- Re-registering a contract allocates a **new** `contract_id` (`BUGS.md` B3), so
+  a contract-scoped ACL breaks on every single redeploy — and only `kyb-screen`
+  writes, so a read-only smoke test will not notice.
+- `maps.update` can narrow an ACL but **cannot widen it again** (`BUGS.md` B2).
+  It reports success, charges 70 tokens, and the map stays unwritable. There is
+  no recovery except creating a new map under a new tail.
+
+Narrowing is therefore a one-way door onto a per-deploy manual step that you
+cannot undo if you get it wrong. `agent/fix-acl.ts` still ships, because a
+tenant that *has* a scoped map needs it, and `scripts/redeploy.sh` explains
+exactly when the step applies and when running it would cause the outage it
+looks like it prevents. This deployment does not need it, and step 5 of the
+redeploy proves that by writing a real certificate.
 
 ## Maintenance
 
@@ -199,13 +341,16 @@ enthusiastic: there is very little here that can rot.
   rotate, nothing to leak, and no `secrets` map in the deployment at all.
 - **No mutable state on the hot path.** `verify-vat` and `verify-lei` are pure
   request/response. Only `kyb-screen` writes, and only append-only certificates.
-- **Two upstream contracts to watch.** Both are government/GLEIF-operated and
-  versioned in their paths (`/vies/rest-api/…`, `/api/v1/…`). `npm run health`
-  exercises the VIES path end-to-end through the enclave and exits non-zero on
-  failure, so a cron entry is sufficient monitoring.
-- **Redeploy is one command** (`scripts/redeploy.sh 0.1.2`) with one manual
-  follow-up documented in `HANDOVER.md`: re-point the map ACL at the new
-  `contract_id`, because re-registration allocates a new one (BUGS.md B3).
+- **The failure mode that matters is now impossible to miss.** An upstream that
+  does not answer produces `risk_level: "UNKNOWN"` and a named upstream code,
+  not a wrong verdict.
+- **Two upstreams to watch.** Both are government/GLEIF-operated and versioned
+  in their paths (`/vies/rest-api/…`, `/api/v1/…`). `npm run health` exercises
+  the VIES path end-to-end through the enclave and exits non-zero on failure, so
+  a cron entry is sufficient monitoring. A throttled upstream is reported as
+  healthy-with-noise rather than as an outage, so the check does not cry wolf.
+- **Redeploy is one command** — `scripts/redeploy.sh 0.2.1` — which tests
+  offline before it spends anything, and proves the result end-to-end after.
 
 Full runbook, failure modes and the handover path are in
 [HANDOVER.md](HANDOVER.md).
@@ -216,21 +361,39 @@ Full runbook, failure modes and the handover path are in
 |---|---|
 | OS | Windows 11, git-bash (MSYS) |
 | Node / npm | v24.0.0 / 11.8.0 |
-| `@terminal3/t3n-sdk` | 4.46.0 |
+| `@terminal3/t3n-sdk` | 4.46.0 (`^4.46.0` in `agent/package.json`) |
 | Rust / target | 1.96.0 / `wasm32-wasip2` |
 | `wasm-tools` | 1.258.0 |
 | Environment | `setEnvironment("testnet")`, node `cn-api.sg.testnet.t3n.terminal3.io` |
-| WASM artifact | `z_tenant_kyb.wasm`, 222 235 bytes, `wasm-tools validate` clean |
+| WASM artifact | `z_tenant_kyb.wasm`, 229 206 bytes, `wasm-tools validate` clean |
 
 Host imports, read back out of the compiled component:
 `host:tenant/tenant-context@1.0.0`, `host:interfaces/logging@2.1.0`,
 `host:interfaces/kv-store@2.1.0`, `host:interfaces/http@2.1.0`.
-Export: `z:tenant-kyb/contracts@0.1.1`.
+Export: `z:tenant-kyb/contracts@0.2.0`.
 
 ## Verified testnet state
 
-- Contract `z:bdf0434d…21694:kyb` — id **813**, v0.1.1 (id 812 was v0.1.0)
-- Map `z:bdf0434d…21694:kyb-results` — active, ACL `{ only: [812, 813] }`
+Captured from `npm run state` and `npm run health` after deploying 0.2.0:
+
+- Tenant `did:t3n:04306a8025385e404902f1c7e988abd849265eec`
+- Contract `z:04306a80…65eec:kyb` — id **835**, v0.2.0, `live_script_version`
+  resolves to `0.2.0`
+- Map `z:04306a80…65eec:kyb-results` — active, permissive writers
 - Egress grant — `ec.europa.eu`, `api.gleif.org`, functions
   `verify-vat` / `verify-lei` / `kyb-screen`
-- `npm run test-kyb` — 4/4 passing, outputs quoted verbatim above
+- `cargo test` — 7/7 offline
+- `npm run test-kyb` — 4/4, outputs quoted verbatim above
+- `npm run health` — `healthy: true`, 3/3 checks
+- Certificate digest `22329c97…573a` recomputed off-chain: **match**
+
+Earlier ids under a previous tenant (`did:t3n:bdf0434d…21694`, contract ids 812
+and 813) are where `BUGS.md` B2 and B3 were originally reproduced. They are
+history, not the current deployment; `BUGS.md` says which tenant each finding
+came from.
+
+
+
+
+
+
