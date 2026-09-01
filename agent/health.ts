@@ -28,7 +28,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Check 2: contract is callable (lightweight verify-vat)
+  // Check 2: contract is callable. `verify-vat` is the cheapest function that
+  // exercises the full path — enclave, egress grant, upstream, JSON back.
+  //
+  // A VIES throttle is NOT a health failure. VIES returns status UNKNOWN when a
+  // member state drops the query (see contract-kyb/src/verify_vat.rs); the
+  // contract is working correctly when it reports that. Only a thrown error, an
+  // unparseable body, or a missing `status` means the agent itself is degraded.
   const scriptVersion = await getContractVersion(s.baseUrl, scriptName);
   try {
     const out = await s.t3n.execute({
@@ -37,10 +43,16 @@ async function main(): Promise<void> {
       function_name: "verify-vat",
       input: { country: "NL", vat_number: "002230884B01" },
     });
-    const parsed = JSON.parse(out as string);
-    checks.push({ name: "verify_vat_responsive", ok: true, detail: `valid=${parsed.valid}` });
+    const parsed = JSON.parse(out as string) as { status?: string; upstream_code?: string };
+    const status = parsed.status ?? "MISSING";
+    const ok = status === "VALID" || status === "INVALID" || status === "UNKNOWN";
+    const detail =
+      status === "UNKNOWN"
+        ? `v${scriptVersion} status=UNKNOWN (upstream ${parsed.upstream_code ?? "?"}) — upstream hiccup, agent OK`
+        : `v${scriptVersion} status=${status}`;
+    checks.push({ name: "verify_vat_responsive", ok, detail });
   } catch (e: unknown) {
-    checks.push({ name: "verify_vat_responsive", ok: false, detail: (e as Error).message.slice(0, 100) });
+    checks.push({ name: "verify_vat_responsive", ok: false, detail: (e as Error).message.slice(0, 120) });
   }
 
   // Check 3: balance sufficient

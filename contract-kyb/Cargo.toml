@@ -1,6 +1,6 @@
 [package]
 name = "z-tenant-kyb"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Confidential KYB verification agent — VAT/LEI validation inside TEE"
 license = "MIT"

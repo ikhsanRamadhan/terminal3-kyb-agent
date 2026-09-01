@@ -8,7 +8,10 @@
 
 extern crate alloc;
 
-pub const CONTRACT_VERSION: &str = "0.1.0";
+// The version lives in exactly two places that the toolchain reads —
+// Cargo.toml and wit/world.wit — and scripts/redeploy.sh bumps both. A third
+// copy as a Rust constant would be a second source of truth that nothing
+// validates, so there isn't one.
 
 wit_bindgen::generate!({
     world: "tenant-kyb",

@@ -1,24 +1,28 @@
 {
-  "name": "t3n-probe",
-  "version": "0.0.1",
+  "name": "t3n-kyb-agent",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "test": "cd ../contract-kyb && cargo test",
+    "state": "tsx --env-file=../.env.local state.ts",
+    "health": "tsx --env-file=../.env.local health.ts",
+    "test-kyb": "tsx --env-file=../.env.local test-kyb.ts",
+    "register-kyb": "tsx --env-file=../.env.local register-kyb.ts",
+    "fix-acl": "tsx --env-file=../.env.local fix-acl.ts",
     "probe": "tsx --env-file=../.env.local probe.ts",
     "kvprobe": "tsx --env-file=../.env.local kvprobe.ts",
     "aclprobe": "tsx --env-file=../.env.local aclprobe.ts",
     "a2": "tsx --env-file=../.env.local a2probe.ts",
     "a3": "tsx --env-file=../.env.local a3probe.ts",
     "a4": "tsx --env-file=../.env.local a4probe.ts",
-    "a5": "tsx --env-file=../.env.local a5probe.ts",
-    "register-kyb": "tsx --env-file=../.env.local register-kyb.ts",
-    "test-kyb": "tsx --env-file=../.env.local test-kyb.ts",
-    "health": "tsx --env-file=../.env.local health.ts",
-    "fix-acl": "tsx --env-file=../.env.local fix-acl.ts"
+    "a5": "tsx --env-file=../.env.local a5probe.ts"
   },
   "dependencies": {
-    "@terminal3/t3n-sdk": "^4.35.1",
-    "ethers": "^6.17.0",
+    "@terminal3/t3n-sdk": "^4.46.0",
     "tsx": "^4.23.12"
   },
   "devDependencies": {

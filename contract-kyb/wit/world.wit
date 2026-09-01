@@ -8,7 +8,7 @@
 /// No API keys required: VIES and GLEIF are free public APIs.
 /// No `http-with-placeholders` needed: these are GET requests with
 /// query parameters, not PII-templated bodies.
-package z:tenant-kyb@0.1.1;
+package z:tenant-kyb@0.2.0;
 
 world tenant-kyb {
     import host:tenant/tenant-context@1.0.0;
@@ -26,17 +26,45 @@ interface contracts {
     }
 
     /// Verify a VAT number via the EU VIES service.
+    ///
     /// Input  (JSON): { "country": "DE", "vat_number": "129273398" }
-    /// Output (JSON): { valid, name, address, request_date, country, vat_number }
+    /// Output (JSON): { status, valid, inconclusive, upstream_code,
+    ///                  name, address, request_date, country, vat_number }
+    ///
+    /// `status` is VALID | INVALID | UNKNOWN. UNKNOWN means VIES did not answer
+    /// (throttled, member state down) — it is NOT a negative result. `valid` is
+    /// a convenience for `status == "VALID"`; `upstream_code` carries the raw
+    /// VIES `userError`. Never branch on `valid` alone for a compliance
+    /// decision: see the module comment in src/verify_vat.rs.
     verify-vat: func(req: generic-input) -> result<list<u8>, string>;
 
     /// Look up a Legal Entity Identifier via GLEIF.
+    ///
     /// Input  (JSON): { "lei": "5299004MG7BJU2QS6Q75" }
-    /// Output (JSON): { lei, legal_name, status, hq_country, registration_date }
+    /// Output (JSON): { lei, legal_name, registration_status, entity_status,
+    ///                  hq_country, jurisdiction, initial_registration_date }
+    ///
+    /// GLEIF keeps two independent statuses and there is no `attributes.status`:
+    /// `registration_status` is ISSUED | LAPSED | RETIRED (the LEI registration)
+    /// and `entity_status` is ACTIVE | INACTIVE (the company). An err result
+    /// with code `NotFound` means the LEI is absent from GLEIF.
     verify-lei: func(req: generic-input) -> result<list<u8>, string>;
 
-    /// Combined KYB check: VAT + LEI + basic sanity.
-    /// Input  (JSON): { "company": "Siemens AG", "vat_country": "DE", "vat_number": "129273398", "lei": "5299004MG7BJU2QS6Q75" }
-    /// Output (JSON): { company, vat_valid, lei_valid, lei_status, risk_score, timestamp, digest }
+    /// Combined KYB screening: VAT + LEI + risk score, persisted as a
+    /// certificate in `z:<tid>:kyb-results` with its digest committed to the
+    /// transaction's Merkle leaf.
+    ///
+    /// Input  (JSON): { "company": "ALBERT HEIJN B.V.", "vat_country": "NL",
+    ///                  "vat_number": "002230884B01", "lei": null }
+    /// Output (JSON): { vat_status, vat_name, lei_registration_status,
+    ///                  lei_entity_status, lei_name, risk_score, risk_level,
+    ///                  inconclusive, timestamp, contract_id, digest }
+    ///
+    /// `risk_level` is LOW | MEDIUM | HIGH | UNKNOWN. UNKNOWN whenever
+    /// `inconclusive` is non-empty, i.e. a source did not answer and the score
+    /// is not a verdict — treat it as "re-run", never as a pass or a fail.
+    /// The subject is identified by the KV key, not by a field in the
+    /// certificate, and registry names are clipped: the certificate has a hard
+    /// 508-byte ceiling (BUGS.md B1). See src/kyb_screen.rs.
     kyb-screen: func(req: generic-input) -> result<list<u8>, string>;
 }
