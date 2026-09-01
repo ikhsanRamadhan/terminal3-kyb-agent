@@ -32,6 +32,9 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use serde::Deserialize;
+// Only the wasm32 build hashes anything — `screen()`'s body is gated on that
+// target, so an unconditional import warns on every host `cargo test`.
+#[cfg(target_arch = "wasm32")]
 use sha2::{Digest, Sha256};
 
 #[derive(Deserialize)]
